@@ -11,10 +11,12 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { parse } from 'jsonc-parser';
 import { installProject, updateProject, doctor, configureCodeGraph } from '../dist/installer.js';
 import { codeGraphConformanceChecks } from '../dist/adapters.js';
+import { createRecord, getRecord, updateRecord } from '../dist/storage.js';
+import { resumeTask } from '../dist/engineering.js';
 
 function project(t, platforms = ['codex', 'claude', 'copilot']) {
   const root = mkdtempSync(join(tmpdir(), 'verythinker install-'));
@@ -67,7 +69,7 @@ test('installation preserves instructions and JSONC/TOML siblings, then is idemp
   assert.equal(parse(read(root, '.mcp.json')).extra, true);
   assert.match(read(root, '.codex/config.toml'), /model = "user-model"/);
   assert.match(read(root, '.codex/config.toml'), /\[mcp_servers.existing\]/);
-  assert.equal(readdirSync(join(root, '.codex/agents')).length, 10);
+  assert.equal(readdirSync(join(root, '.codex/agents')).length, 12);
   assert.ok(existsSync(join(root, '.agents/skills/verythinker-verify/SKILL.md')));
   assert.ok(existsSync(join(root, '.claude/skills/verythinker-verify/SKILL.md')));
   assert.ok(existsSync(join(root, '.github/skills/verythinker-verify/SKILL.md')));
@@ -226,9 +228,261 @@ test('native hook commands and model metadata are generated without claiming liv
     );
     assert.equal(
       platform.capabilities.find((item) => item.capability === 'model-routing').status,
-      'unverified',
+      platform.platform === 'codex' ? 'unverified' : 'restricted',
     );
   }
+});
+
+test('alpha.3 migration fills unset Codex mappings and preserves authored platform overrides', (t) => {
+  const root = project(t);
+  const config = JSON.parse(read(root, '.verythinker/config.json'));
+  config.models = {
+    economy: { claude: 'haiku', copilot: 'worker-choice' },
+    balanced: null,
+    strong: { codex: 'authored-model', claude: 'opus' },
+  };
+  write(root, '.verythinker/config.json', JSON.stringify(config, null, 2) + '\n');
+  write(
+    root,
+    '.verythinker/records/legacy.md',
+    'Historical accepted record retained byte for byte.\n',
+  );
+  const report = installProject(root);
+  const current = JSON.parse(read(root, '.verythinker/config.json'));
+  assert.deepEqual(current.models.economy, {
+    claude: 'haiku',
+    copilot: 'worker-choice',
+    codex: 'gpt-6-luna',
+  });
+  assert.deepEqual(current.models.balanced, { codex: 'gpt-6-luna' });
+  assert.deepEqual(current.models.strong, { codex: 'authored-model', claude: 'opus' });
+  const conflict = report.conflicts.find(
+    (item) => item.path === '.verythinker/config.json#models.codex',
+  );
+  assert.ok(conflict);
+  assert.equal(JSON.parse(read(root, conflict.candidate)).models.strong.codex, 'gpt-6.1-sol');
+  assert.equal(
+    read(root, '.verythinker/records/legacy.md'),
+    'Historical accepted record retained byte for byte.\n',
+  );
+  assert.match(read(root, '.codex/agents/verythinker-manager.toml'), /model = "gpt-6.1-sol"/);
+  assert.equal(
+    updateProject(root).conflicts.find((item) => item.path === conflict.path).candidate,
+    conflict.candidate,
+  );
+});
+
+test('alpha.3 migration makes pending legacy work strict while preserving recorded closed history bytes', (t) => {
+  const root = project(t, ['codex']);
+  const requirement = createRecord(root, {
+    type: 'requirement',
+    title: 'Legacy migration requirement',
+  });
+  const closed = createRecord(root, {
+    type: 'knowledge',
+    title: 'Recorded historical closed workflow',
+    status: 'verified',
+    data: { kind: 'manager-workflow', phase: 'completed', task_ids: [] },
+  });
+  const historical = createRecord(root, {
+    type: 'task',
+    title: 'Recorded historical submitted task',
+    status: 'submitted',
+    owner: 'developer',
+    data: { workflow_id: closed.meta.id, invocation_id: 'legacy-history-worker' },
+    links: [{ type: 'satisfies', target: requirement.meta.id }],
+  });
+  const report = createRecord(root, {
+    type: 'knowledge',
+    title: 'Recorded historical closure report',
+    links: [{ type: 'documents', target: closed.meta.id }],
+    data: { kind: 'work-record' },
+    body: '# Objective\nHistorical metadata fixture; it establishes no native model access.\n',
+  });
+  updateRecord(root, closed.meta.id, {
+    data: {
+      final_report_id: report.meta.id,
+      task_ids: [historical.meta.id],
+    },
+  });
+  const accepted = createRecord(root, {
+    type: 'task',
+    title: 'Recorded historical accepted metadata',
+    status: 'accepted',
+  });
+  const superseded = createRecord(root, {
+    type: 'task',
+    title: 'Superseded historical assignment',
+    status: 'superseded',
+  });
+  const pending = createRecord(root, {
+    type: 'knowledge',
+    title: 'Pending legacy workflow',
+    data: { kind: 'manager-workflow', phase: 'execution', task_ids: [] },
+  });
+  const existingIncrement = '12345678-1234-4abc-8def-123456789abc';
+  const existing = createRecord(root, {
+    type: 'knowledge',
+    title: 'Pending workflow with an existing increment identity',
+    data: { kind: 'manager-workflow', phase: 'intake', increment_id: existingIncrement },
+  });
+  const partiallyMigrated = createRecord(root, {
+    type: 'knowledge',
+    title: 'Pending workflow whose routing migration was already applied',
+    data: { kind: 'manager-workflow', phase: 'execution', routing_required: true },
+  });
+  const active = createRecord(root, {
+    type: 'task',
+    title: 'Pending legacy in-progress implementation',
+    owner: 'developer',
+    status: 'in-progress',
+    links: [{ type: 'satisfies', target: requirement.meta.id }],
+    data: {
+      workflow_id: pending.meta.id,
+      invocation_id: 'legacy-pending-worker',
+      allowed_paths: ['src'],
+    },
+  });
+  updateRecord(root, pending.meta.id, { data: { task_ids: [active.meta.id] } });
+  const originals = [closed, historical, accepted, superseded, report].map((record) => ({
+    path: record.path,
+    bytes: read(root, record.path),
+  }));
+  const first = installProject(root);
+  assert.equal(getRecord(root, pending.meta.id).meta.data.routing_required, true);
+  const migratedIncrement = getRecord(root, pending.meta.id).meta.data.increment_id;
+  const backfilledIncrement = getRecord(root, partiallyMigrated.meta.id).meta.data.increment_id;
+  assert.match(
+    migratedIncrement,
+    /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+  );
+  assert.match(
+    backfilledIncrement,
+    /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+  );
+  assert.equal(getRecord(root, existing.meta.id).meta.data.increment_id, existingIncrement);
+  const migrated = getRecord(root, active.meta.id);
+  assert.equal(migrated.meta.data.routing_required, true);
+  assert.equal(migrated.meta.data.invocation_id, 'legacy-pending-worker');
+  assert.equal(migrated.meta.revision, active.meta.revision + 1);
+  assert.ok(first.updated.includes(`${active.path}#pending-routing`));
+  assert.throws(() => resumeTask(root, active.meta.id), /native|routing/i);
+  for (const original of originals) assert.equal(read(root, original.path), original.bytes);
+  const pendingBytes = read(root, active.path);
+  assert.equal(
+    updateProject(root).updated.some((path) => path.endsWith('#pending-routing')),
+    false,
+  );
+  assert.equal(read(root, active.path), pendingBytes);
+  assert.equal(getRecord(root, pending.meta.id).meta.data.increment_id, migratedIncrement);
+  assert.equal(
+    getRecord(root, partiallyMigrated.meta.id).meta.data.increment_id,
+    backfilledIncrement,
+  );
+  assert.equal(getRecord(root, existing.meta.id).meta.data.increment_id, existingIncrement);
+  for (const original of originals) assert.equal(read(root, original.path), original.bytes);
+});
+
+test('concurrent installers allocate one persistent increment identity for pending legacy work', async (t) => {
+  const root = project(t, ['codex']);
+  const pending = createRecord(root, {
+    type: 'knowledge',
+    title: 'Concurrent pending migration fixture',
+    data: { kind: 'manager-workflow', phase: 'intake' },
+  });
+  const script = `const {installProject}=await import(${JSON.stringify(new URL('../dist/installer.js', import.meta.url).href)}); const {getRecord}=await import(${JSON.stringify(new URL('../dist/storage.js', import.meta.url).href)}); installProject(process.argv[1]); process.stdout.write(JSON.stringify(getRecord(process.argv[1],process.argv[2]).meta.data.increment_id));`;
+  const run = () =>
+    new Promise((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        ['--input-type=module', '-e', script, root, pending.meta.id],
+        { shell: false, windowsHide: true },
+      );
+      let stdout = '',
+        stderr = '';
+      child.stdout.on('data', (data) => {
+        stdout += data;
+      });
+      child.stderr.on('data', (data) => {
+        stderr += data;
+      });
+      child.on('error', reject);
+      child.on('close', (code) =>
+        code === 0 ? resolve(JSON.parse(stdout)) : reject(new Error(stderr)),
+      );
+    });
+  const [first, second] = await Promise.all([run(), run()]);
+  assert.equal(first, second);
+  assert.equal(getRecord(root, pending.meta.id).meta.data.increment_id, first);
+  updateProject(root);
+  assert.equal(getRecord(root, pending.meta.id).meta.data.increment_id, first);
+});
+
+test('strict roles and gateway tool declarations preserve reviewer independence', (t) => {
+  const root = project(t);
+  installProject(root);
+  for (const role of [
+    'manager',
+    'requirements',
+    'architect',
+    'component-owner',
+    'verifier',
+    'reviewer',
+  ]) {
+    const file = read(root, `.codex/agents/verythinker-${role}.toml`);
+    assert.match(file, /model = "gpt-6.1-sol"/);
+    assert.match(file, /model_reasoning_effort = "high"/);
+    assert.match(file, /sandbox_mode = "read-only"/);
+  }
+  for (const role of [
+    'researcher',
+    'codebase-analyst',
+    'curator',
+    'developer',
+    'check-executor',
+    'release',
+  ])
+    assert.match(read(root, `.codex/agents/verythinker-${role}.toml`), /model = "gpt-6-luna"/);
+  const reviewer = read(root, '.codex/agents/verythinker-reviewer.toml');
+  const enabled = JSON.parse(/^enabled_tools = (.+)$/m.exec(reviewer)[1]);
+  assert.ok(enabled.includes('task_review'));
+  assert.ok(!enabled.includes('task_submit'));
+  assert.ok(!enabled.includes('record_update'));
+  const claude = read(root, '.claude/agents/verythinker-reviewer.md');
+  const toolLine = /^tools: (.+)$/m.exec(claude)[1].split(', ');
+  assert.ok(toolLine.includes('Read'));
+  assert.ok(toolLine.includes('mcp__verythinker__task_review'));
+  assert.ok(!toolLine.includes('Edit'));
+  const copilot = JSON.parse(
+    /^tools: (.+)$/m.exec(read(root, '.github/agents/verythinker-reviewer.agent.md'))[1],
+  );
+  assert.ok(copilot.includes('verythinker/task_review'));
+  assert.ok(!copilot.includes('edit'));
+  assert.ok(existsSync(join(root, '.verythinker/roles/check-executor.capabilities.json')));
+  assert.match(read(root, '.agents/skills/verythinker-manager/SKILL.md'), /manager_run/);
+});
+
+test('project-owned routing, archive, and tool policies survive updates', (t) => {
+  const root = project(t, ['codex']);
+  installProject(root);
+  const archive = JSON.parse(read(root, '.verythinker/archive.json'));
+  archive.repository = 'example/private';
+  archive.enabled = false;
+  write(root, '.verythinker/archive.json', JSON.stringify(archive, null, 2) + '\n');
+  const tools = JSON.parse(read(root, '.verythinker/tools.json'));
+  tools.automatic_install = false;
+  tools.approved_providers = ['context7'];
+  write(root, '.verythinker/tools.json', JSON.stringify(tools, null, 2) + '\n');
+  const before = read(root, '.verythinker/routing.json');
+  const report = updateProject(root);
+  assert.deepEqual(report.conflicts, []);
+  assert.equal(read(root, '.verythinker/routing.json'), before);
+  assert.equal(JSON.parse(read(root, '.verythinker/archive.json')).repository, 'example/private');
+  assert.equal(JSON.parse(read(root, '.verythinker/tools.json')).automatic_install, false);
+  const health = doctor(root);
+  assert.deepEqual(health.routing.observations, []);
+  assert.equal(health.archives.enabled, false);
+  assert.equal(health.tools.policy.automatic_install, false);
 });
 
 test('invalid JSON remains untouched with a generated candidate', (t) => {

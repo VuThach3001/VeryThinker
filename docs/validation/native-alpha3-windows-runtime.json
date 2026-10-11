@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "collected_at": "2026-10-11T14:45:00Z",
+  "kind": "read-only-native-runtime-diagnosis",
+  "runtime": "@openai/codex@0.162.1",
+  "platform": "Windows",
+  "project": "artifacts/native-managed-e2e",
+  "observations": {
+    "command_runner_installed": true,
+    "windows_sandbox_setup_helper_installed": true,
+    "legacy_setup_marker_version": 5,
+    "inherited_windows_sandbox": "elevated",
+    "worker_acknowledged_sandbox": "workspaceWrite",
+    "strategic_acknowledged_sandbox": "readOnly",
+    "setup_error": {
+      "code": "helper_unknown_error",
+      "message": "setup refresh had errors"
+    },
+    "correlated_failures": [
+      {
+        "at": "2026-10-11T13:46:36Z",
+        "operation": "native command execution",
+        "stage": "runtime read/execute ACL validation",
+        "target": "<user-home>/AppData/Local/OpenAI/Codex/runtimes/cua_node/cfb32733c877621e/bin/node_repl.exe",
+        "os_error": 32,
+        "message": "The process cannot access the file because it is being used by another process.",
+        "setup_refresh_exit_code": 1
+      },
+      {
+        "at": "2026-10-11T13:50:08Z",
+        "operation": "native file-change fallback",
+        "stage": "runtime read/execute ACL validation",
+        "target": "<user-home>/AppData/Local/OpenAI/Codex/runtimes/cua_node/cfb32733c877621e/bin/node_repl.exe",
+        "os_error": 32,
+        "setup_refresh_exit_code": 1
+      }
+    ],
+    "inherited_node_repl_mcp_configured": true
+  },
+  "classification": "Observed host-specific legacy elevated sandbox refresh failure caused by a file-sharing conflict on an existing native runtime ACL target. Installed helpers and completed authenticated model invocations rule out missing helper files or missing model access for these observed attempts.",
+  "narrow_recovery_investigation": {
+    "question": "Would disabling an unused inherited Node REPL MCP provider remove the failing ACL target without changing permissions?",
+    "result": "Not established. Pinned setup source independently gathers platform/profile read roots. Support for disabling an MCP provider does not establish that this runtime target disappears from sandbox refresh.",
+    "configuration_change_applied": false
+  },
+  "changes_applied": {
+    "global_configuration": false,
+    "sandbox_permissions": false,
+    "setup_state": false,
+    "runtime_pin": false,
+    "user_process_termination": false,
+    "pending_native_request_approval": false
+  },
+  "permitted_recovery": "Continue through existing role- and task-scoped VeryThinker MCP operations, preserving the native refusal and actual evidence. This does not establish generic native shell or file-edit compatibility on this host.",
+  "sources": [
+    {
+      "kind": "observed-local",
+      "path": "<codex-home>/.sandbox/sandbox.2026-10-11.log",
+      "scope": "Only entries correlated with this project's owned invocations; raw logs are not exported."
+    },
+    {
+      "kind": "observed-local",
+      "path": "<codex-home>/.sandbox/setup_error.json"
+    },
+    {
+      "kind": "source-reported",
+      "url": "https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/windows-sandbox-rs/src/setup.rs"
+    },
+    {
+      "kind": "source-reported",
+      "url": "https://learn.chatgpt.com/docs/windows/windows-sandbox"
+    }
+  ],
+  "limitations": [
+    "The exact process holding the target executable was not terminated or changed.",
+    "No inference is made that all Windows installations or all native edit operations fail.",
+    "Scoped MCP operation success is distinct from native sandbox helper success.",
+    "Private sandbox secrets and unrelated sessions were not inspected."
+  ]
+}

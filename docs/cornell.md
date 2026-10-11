@@ -1,0 +1,21 @@
+# Cornell notes with evidence
+
+Cornell notes are visible project documents for research, codebase analysis, guidance, how-to procedures, root-cause investigations, and learning. The format was independently authored from the structure of the supplied reverse-string note. It uses the requested quote and preserves the distinction between explanation and measured results.
+
+`createCornellNote(root, input)` creates the authoritative narrative, separate exercise and answer files, and a knowledge record containing artifact hashes and provenance. It preserves an existing user solution. Ordinary creation never overwrites existing artifacts. Accepted narrative revisions use new paths and an explicit review.
+
+An owned draft repair can use `reviseCornellNote(root, id, input, expectedRevision, reason)` at its existing paths. MCP retains the same `note_create` operation and `note` envelope, with optional `revision_id`, `expected_revision`, and `revision_reason`. The CLI equivalent is `note revise ID --data JSON`, where the JSON contains `note` and those revision fields. A repair requires matching stored artifact hashes, a current record revision, unchanged paths, and substantive rationale; user edits, missing files, accepted notes/tasks, protected expectations, and conflicting writers block it. Previous raw records, native authorship, and all three artifact bytes remain hashed immutable history. User solutions are never written during revision.
+
+A durable revision intent records the old and proposed hashes before visible writes. After interruption, only the same request and files still matching those owned old/new hashes can resume; unexpected bytes remain untouched. Exact completed-request replay returns the same draft revision, while other stale requests fail. Current visible artifact hashes remain separate from history; exact history paths are exported through the existing archive closure. This recovery does not make multiple filesystem writes crash-atomic.
+
+Each note has topic/date, context/constraints, cue questions, main notes, demonstration, expected and observed results, failure cases, practice, summary, and a source ledger. Claims use `[observed]`, `[source-reported]`, `[expected]`, or `[inferred]`. Source IDs use `[S1]` references. Local sources and record sources are fingerprinted; external HTTPS sources retain retrieval time and optional captured-content hash. An external citation is structurally checked, not automatically fetched or independently verified.
+
+Observed demonstrations require passing evidence records. A worked example can remain an expected result until it runs. Commands are explicit argument vectors and are executed only through the engineering check workflow. Format checks cannot establish the educational correctness of prose or causal conclusions; those require independent review.
+
+`validateCornellNote(root, id)` reports missing/changed artifacts, malformed sections, placeholder prose, unresolved citations, broken local links or heading anchors, changed local/record sources, and missing demonstration evidence. `noteFreshnessProblems(root, taskOrRecord)` applies those checks to linked notes during engineering gates.
+
+Root-cause notes add reproduction, hypotheses, eliminating evidence, confirmed/unresolved conclusion, repair, and regression results. A problem record links to its explanation through the note's `documents` relationship. Practice artifacts keep the exercise separate from the answer; a user solution is neither hashed as generated content nor overwritten.
+
+Practice may include intentional learner scaffolding inside closed Markdown fences or inline code. Runnable code artifacts may use marked scaffold comments with complete instructional comments. The surrounding instructional prose must be substantive and free of placeholders; completed answers, demonstrations, main notes, and summaries retain strict checks. A runnable setup scaffold is a practice starting point, not evidence that the learner completed the exercise.
+
+The default note location is `docs/knowledge/<topic>.md`. The source reference note is an inspiration for the portable layout; its topic-specific algorithms and unrelated scripts are not copied.

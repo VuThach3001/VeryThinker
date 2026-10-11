@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "source_commit": "c6619118f84e3ca5499afe24e9b362fb3453d3b5",
+  "run_id": 38156198458,
+  "url": "https://github.com/VuThach3001/VeryThinker/actions/runs/38156198458",
+  "status": "passed",
+  "checks": [
+    "locked-install",
+    "build",
+    "tests",
+    "package-inventory",
+    "pack",
+    "installed-package-smoke"
+  ],
+  "platforms": [
+    {
+      "platform": "windows-latest",
+      "completed_at": "2026-10-11T16:40:18Z",
+      "tests": 224,
+      "passed": 223,
+      "failed": 0,
+      "skipped": 1,
+      "skip_reasons": [
+        "The CI runner has no native host C compiler for the optional recipe comparison."
+      ]
+    },
+    {
+      "platform": "ubuntu-latest",
+      "completed_at": "2026-10-11T16:37:48Z",
+      "tests": 224,
+      "passed": 220,
+      "failed": 0,
+      "skipped": 4,
+      "skip_reasons": [
+        "Windows file-lock behavior is inapplicable.",
+        "Three CodeGraph installation checks require their Windows conformance fixture."
+      ]
+    }
+  ],
+  "prior_successful_run": {
+    "source_commit": "4f09846d7119731d3d640ce0540d57b2cea166e0",
+    "run_id": 38143325328,
+    "url": "https://github.com/VuThach3001/VeryThinker/actions/runs/38143325328",
+    "tests_per_platform": 188,
+    "windows_passed": 187,
+    "ubuntu_passed": 184,
+    "failed": 0
+  },
+  "limitations": [
+    "CI uses protocol and engineering fixtures, not account authentication or inference.",
+    "Optional tool and physical hardware access are not established by these jobs.",
+    "The prior Windows run exposed a returned-versus-persisted body mismatch; canonical storage and a regression test were added before this successful run.",
+    "The authenticated workflow exposed opaque Cornell input discovery; typed fields and scoped no-write regressions are included in this source revision.",
+    "Owned draft-note repair includes exact history, user-edit protection, lost-response replay, and interrupted partial-write regression coverage.",
+    "Five storage-cache regressions preserve same-size edited bytes with restored timestamps, paths and duplicate IDs, independent data values, invalid-input failures, and eviction beyond the count bound.",
+    "Scoped writer and inspection fixtures prove mechanics, interruption recovery and source capture integrity; the new operations still need actual account-backed end-to-end execution."
+  ],
+  "previous_storage_source_run": {
+    "source_commit": "5561110ca4b91bc360c79a5e335936b80bd65d07",
+    "run_id": 38152632869,
+    "url": "https://github.com/VuThach3001/VeryThinker/actions/runs/38152632869",
+    "tests_per_platform": 201,
+    "failed": 0
+  },
+  "local": {
+    "tests": 224,
+    "passed": 224,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 353474.4851,
+    "log": "artifacts/alpha3-tests-workspace-inspection-final.txt"
+  }
+}

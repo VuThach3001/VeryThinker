@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "tested_source_commit": "c6619118f84e3ca5499afe24e9b362fb3453d3b5",
+  "collected_at": "2026-10-11T21:25:05.950Z",
+  "platform": "win32-x64",
+  "node": "v24.18.0",
+  "tests": 224,
+  "passed": 224,
+  "failed": 0,
+  "skipped": 0,
+  "duration_ms": 353474.4851,
+  "log": "artifacts/alpha3-tests-workspace-inspection-final.txt",
+  "limitations": [
+    "Boundary fixtures and legacy inspection tests do not establish actual account access, semantic review quality or remote publication."
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "embedded-hysteresis-load-control",
+  "version": "1.0.0",
+  "applicability": "Unsigned ADC hysteresis controller with inclusive fault boundaries, retained state between thresholds, and a nominal ideal resistive load-switch circuit.",
+  "limitations": [
+    "ADC range is bounded to 65535 for exhaustive verification.",
+    "JavaScript simulation, optional native host C, and optional command-line ngspice DC measurements; no MCU execution or physical board evidence.",
+    "Ideal switch excludes transistor selection, dynamics, thermal constraints, measurement uncertainty, and hardware safety."
+  ],
+  "parameter_schema": {
+    "output_dir": "Canonical visible directory",
+    "adc_max": "Integer <= 65535",
+    "fault_low/off_threshold/on_threshold/fault_high": "Strictly ordered integer thresholds within ADC bounds",
+    "supply_v/load_ohm/on_ohm/off_ohm": "Positive finite circuit values; off_ohm > on_ohm",
+    "tolerance": "Positive relative tolerance <= 0.01",
+    "compiler": "Optional existing host executable",
+    "compiler_family": "gcc or dmc",
+    "ngspice": "Optional existing command-line ngspice executable"
+  }
+}

@@ -1,15 +1,15 @@
 # Native client compatibility
 
-VeryThinker installs project-local adapters. Generated files are checked by automated tests; discovery and execution in authenticated native sessions remain **unverified** until a recorded conformance run confirms them. Finding an executable or a configuration file does not establish native behavior or model availability.
+VeryThinker installs project-local adapters. Generated files are checked by automated tests. Authenticated Codex App Server `0.162.1` observations confirm Sol and Luna selection and completed inference; [validation reports](validation.md) separately record engineering completion. Native skill-picker discovery and hook trust remain unverified. Finding an executable or a configuration file does not establish native behavior or model availability.
 
 ## Supported installation targets
 
-| Target | Generated integration | Verification status |
-| --- | --- | --- |
-| Codex local CLI/desktop/IDE | `AGENTS.md`, `.agents/skills`, `.codex/agents/*.toml`, project MCP and lifecycle hooks | Structural generation tested; native discovery and trust unverified |
-| Claude Code local | `CLAUDE.md`, `.claude/skills`, `.claude/agents/*.md`, portable MCP and lifecycle hooks | Structural generation tested; native discovery and execution unverified |
-| GitHub Copilot in VS Code | Repository instructions, `.github/skills`, `.github/agents/*.agent.md`, portable MCP and repository hooks | Structural generation tested; extension version, agent host, and native execution unverified |
-| Remote/cloud clients | Local adapters may contain machine-specific absolute paths | Restricted; install on the execution host and record a separate conformance run |
+| Target                      | Generated integration                                                                          | Verification status                                                                                             |
+| --------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Codex local CLI/desktop/IDE | Instructions/skills/roles, project MCP/hooks, project-local App Server `0.162.1`               | Sol/Luna selection and inference observed on the pinned App Server; picker/hook discovery remains unverified     |
+| Claude Code local           | `CLAUDE.md`, `.claude/skills`, `.claude/agents/*.md`, portable MCP and hooks                   | Resource generation remains available; strict Sol/Luna/Terra execution is restricted pending verified selection |
+| GitHub Copilot in VS Code   | Repository instructions, `.github/skills`, `.github/agents/*.agent.md`, portable MCP and hooks | Resource generation remains available; strict exact-model execution is restricted pending verified selection    |
+| Remote/cloud clients        | Local adapters may contain machine-specific absolute paths                                     | Restricted; install on the execution host and record a separate conformance run                                 |
 
 `doctor` reports runtime support, generated file presence, executable availability, requested model mappings, and limitations. It leaves skill discovery, effective model selection, MCP invocation, and hook execution unverified until native evidence exists. Native executable versions are observed only when the executable can safely run with `--version`; Windows batch shims are reported without executing a shell.
 
@@ -25,19 +25,29 @@ References were checked on 2026-10-11. Compatibility is assessed by client surfa
 
 ## Model routing
 
-Project model tiers are requested mappings. An unset mapping inherits the platform's selection. VeryThinker does not query account entitlements or claim that a requested model actually ran. Each work record must distinguish requested model, confirmed model, and unavailable observations.
+Alpha.3 installed Codex projects use exact routing policy: Sol for manager/requirements/design/component contracts/verification strategy/review, Luna for bounded workers, and Terra only after native Luna-unavailability evidence. The project-local App Server acknowledges selection at thread start/resume; signed receipts retain selected model/provider/effort, native identities, configuration hashes, completion, permissions, and reroutes. Receipt validation and successful inference are separate conditions. A model catalog entry does not establish account access.
+
+Historical alpha.2 records keep their requested/agent-reported observations and are never upgraded into native receipts. Directly initialized legacy fixtures remain useful for testing core record mechanics; generated adapters and an installed routing policy activate strict execution. Native schema fixtures include the pinned `0.153.4` response for regression and the `0.162.1` runtime conformance surface.
 
 Hooks are advisory: disabling or rejecting them does not bypass CLI verification. MCP configuration alone does not grant trust or prove that a tool was invoked.
+
+The authenticated Windows run encountered a host-specific sandbox refresh failure on a locked inherited Node REPL executable. Scoped VeryThinker MCP operations still generated files and ran checks. This establishes neither universal Windows failure nor generic native editing compatibility; the [runtime observations](validation/native-alpha3-windows-runtime.json) preserve the exact limitation.
 
 ## Installation and updates
 
 The installer tracks managed files, marked instruction blocks, and individual JSON configuration entries with SHA-256 hashes and a package version. It preserves comments and sibling settings. Existing user-owned VeryThinker keys, malformed settings, edited files, and deleted managed content produce `.verythinker-update` candidates. Edited candidate files are also preserved by creating a numbered candidate. Review candidates explicitly; even `force` preserves user edits.
 
+Alpha.2 migration applies the selected defaults only to unset model mappings. Authored overrides and conflicting routing/configuration receive reviewable candidates. Accepted historical evidence stays attached to its original revision; new strict work requires valid native receipts. Twelve role contracts include a codebase analyst and a check executor; Cornell notes and three recipes add portable knowledge resources.
+
 Each client launches the package's absolute `dist/cli.js` with the current Node executable. After moving a project or reinstalling the package on another machine, run `update` and review changed native paths.
 
 ## Optional CodeGraph provider
 
-The installed descriptor pins `@colbymchenry/codegraph@1.6.2` and defaults to disabled/unverified. Installation does not download or enable CodeGraph. The [recorded experiment](codegraph.md) passed all twelve Windows C/C++ and freshness checks on its small fixture. Explicit project enablement requires this evidence, a matching Windows platform/architecture, and a supplied absolute executable with complete server arguments. Reports are hash-locked and native entries preserve existing configuration. Fixture support does not establish native client discovery. Its code graph assists discovery; reviewed engineering records retain requirement traceability.
+The historical descriptor pins `@colbymchenry/codegraph@1.6.2`; its [recorded experiment](codegraph.md) passed twelve Windows C/C++ and freshness checks on a small fixture. Alpha.3 adds automatic installation of applicable approved providers through the scoped gateway, while CodeGraph activation still requires applicable freshness/conformance evidence. Context7 `4.3.0` and Playwright MCP `0.0.83` are also pinned with integrity locks. Required missing capabilities block dispatch, and optional equivalents are recorded. Fixture support does not establish native client discovery. Code discovery complements reviewed engineering traceability.
+
+Native role definitions carry supported tool restrictions. The gateway enforces role/core/provider scope; native filesystem and tool permissions remain governed by the client. Doctor labels configured tools, observed availability, enforced restrictions, and instruction-only limits rather than implying every restriction is enforced by every adapter.
+
+For Playwright, exact task `allowed_urls` checks apply to explicit `browser_navigate` requests. Clicks, typing, key presses, and redirects inherit provider/client network permissions; hard URL containment for those interactions is not established. Arbitrary browser code is outside the approved catalog. The recorded provider run establishes discovery only; browser execution remains unverified.
 
 ## Native conformance procedure
 

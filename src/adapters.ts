@@ -3,6 +3,8 @@ import { resolve, join, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { createHash } from 'node:crypto';
+import { readRoutingPolicy, strongRoles } from './routing.js';
+import { roleCapabilities } from './tools.js';
 
 export type Platform = 'codex' | 'claude' | 'copilot';
 export type ModelTier = 'economy' | 'balanced' | 'strong';
@@ -35,7 +37,7 @@ export const codeGraphProvider = {
   enabled: false,
   status: 'unverified',
   required_checks: ['windows', 'cpp', 'freshness'],
-  note: 'Optional code-context provider. No provider is installed or enabled automatically.',
+  note: 'Legacy direct integration remains optional. The approved alpha.3 gateway installs this pinned provider when applicable and records freshness/availability.',
 };
 
 export const codeGraphConformanceChecks = [
@@ -226,13 +228,42 @@ function shellCommands(args: string[]): { command: string; windows: string } {
 const workflow = `## VeryThinker engineering workflow
 
 For a new requirement, feature, fix, research-to-implementation request, or interrupted engineering workflow received directly from the user, automatically act as the VeryThinker manager and load the verythinker-manager skill plus .verythinker/guides/manager.md. Assigned workers follow their bounded task and specialist role. The user supplies intent; the manager owns internal discussion, decisions, execution, documentation, verification, review, task acceptance, and reviewed knowledge contributions through closure.
-Read .verythinker/config.json and .verythinker/automation.json for profile, routing, and contribution policy. Ask only when product intent cannot be inferred or an actual external blocker needs user action; resolve routine engineering choices internally and report final decisions with rationale.
+Read .verythinker/config.json, .verythinker/automation.json, .verythinker/routing.json, .verythinker/archive.json, and .verythinker/tools.json for the installed profile and policies. When routing.json exists, automatically invoke manager_run with the user's complete requirement or requirements array. The bridge starts the managed gpt-6.1-sol coordinator and confirms native model selection; the intake agent observes manager_status/native_status and bounded native_wait results, then returns the coordinator's final decisions. Resume an existing native invocation rather than creating duplicates. Inside an invocation already identified as the managed manager or an assigned specialist, follow its packet without recursively calling manager_run. When routing.json is absent, retain the legacy manager_begin/native-delegation workflow.
+Strong managed roles exclusively use gpt-6.1-sol. Workers prefer gpt-6-luna; only bridge-observed Luna unavailability permits gpt-5.6-terra. Missing confirmation, native permission refusals, or unavailable required tools are recorded blockers. Ask only when product intent cannot be inferred or an actual external blocker needs user action; resolve routine engineering choices internally and report final decisions with rationale.
 Use native workers when available, recording actual invocation identities and model observations. Resume saved manager workflow state before creating duplicate work. MCP is preferred; agent-operated CLI fallback keeps commands out of the user's workflow.
 For a delegated task, obtain its context packet through VeryThinker CLI or MCP, then stay within its allowed scope.
 Read .verythinker/guides/workflow.md and your role contract for worker submission and review. Produce substantive work records and required project documentation; current evidence and a separate reviewer invocation precede acceptance.
 Hooks provide advisory context. Completion must pass core validation even when hooks fail. Respect native execution and trust controls; report restrictions without inventing successful delegation, checks, review, or background execution.
 Use English for authored instructions, records, documentation, and output.
 `;
+function capabilityInstructions(role: string): string {
+  const contract = roleCapabilities(role);
+  return `## Role capabilities\nRole: ${role}. Required capabilities: ${contract.required.join(', ')}. Optional equivalents: ${contract.optional.join(', ') || 'none'}. Approved providers: ${contract.providers.join(', ') || 'none'}. Use capability_describe/capability_resolve and the invocation-bound capability_invoke gateway. Required missing tools block dispatch; optional substitutions are recorded. Allowed core operations: ${contract.operations.join(', ')}. Native tool scope: ${contract.native_tools.join(', ')}. Generated native restrictions require client conformance; the bound gateway is authoritative for its operations.\n`;
+}
+function claudeTools(role: string): string[] {
+  const contract = roleCapabilities(role);
+  const native = ['Read', 'Grep', 'Glob'];
+  if (contract.native_tools.includes('web')) native.push('WebSearch', 'WebFetch');
+  if (contract.native_tools.some((tool) => tool.startsWith('edit'))) native.push('Edit', 'Write');
+  if (contract.native_tools.includes('execute-prescribed')) native.push('Bash', 'PowerShell');
+  return [
+    ...native,
+    ...contract.operations.map((operation) => `mcp__verythinker__${operation}`),
+    ...(role === 'manager' ? ['mcp__verythinker__manager_run'] : []),
+  ];
+}
+function copilotTools(role: string): string[] {
+  const contract = roleCapabilities(role);
+  const native = ['read', 'search'];
+  if (contract.native_tools.includes('web')) native.push('web');
+  if (contract.native_tools.some((tool) => tool.startsWith('edit'))) native.push('edit');
+  if (contract.native_tools.includes('execute-prescribed')) native.push('execute');
+  return [
+    ...native,
+    ...contract.operations.map((operation) => `verythinker/${operation}`),
+    ...(role === 'manager' ? ['verythinker/manager_run'] : []),
+  ];
+}
 
 export function adapterOutputs(root: string, config: AdapterConfig): ManagedOutput[] {
   root = resolve(root);
@@ -260,11 +291,23 @@ export function adapterOutputs(root: string, config: AdapterConfig): ManagedOutp
         content: `[mcp_servers.codegraph]\ncommand = ${JSON.stringify(codegraph.command)}\nargs = ${JSON.stringify(codegraph.args)}\nenabled = true\nenv = { CODEGRAPH_TELEMETRY = "0", DO_NOT_TRACK = "1", CODEGRAPH_NO_DOWNLOAD = "1" }\n`,
       });
     for (const role of roles) {
-      const model = modelFor(config, role.tier, 'codex');
+      const strict = readRoutingPolicy(root);
+      // Generate the approved candidate even while an authored model mapping
+      // awaits migration review. Execution validates that conflict separately.
+      const strong = (strongRoles as readonly string[]).includes(role.id);
+      const policy = strict
+        ? {
+            models: strong ? [strict.strong_model] : strict.worker_models,
+            reasoning_effort: strong ? strict.strong_effort : strict.worker_effort,
+            strong,
+          }
+        : null;
+      const model = policy?.models[0] ?? modelFor(config, role.tier, 'codex');
+      const contract = roleCapabilities(role.id);
       outputs.push({
         path: `.codex/agents/verythinker-${role.id}.toml`,
         kind: 'file',
-        content: `name = ${JSON.stringify(`verythinker-${role.id}`)}\ndescription = ${JSON.stringify(role.description)}\n${model ? `model = ${JSON.stringify(model)}\n` : ''}developer_instructions = ${JSON.stringify(`${workflow}\n${role.body}`)}\n`,
+        content: `name = ${JSON.stringify(`verythinker-${role.id}`)}\ndescription = ${JSON.stringify(role.description)}\n${model ? `model = ${JSON.stringify(model)}\n` : ''}${policy ? `model_reasoning_effort = ${JSON.stringify(policy.reasoning_effort)}\n` : ''}${policy?.strong ? 'sandbox_mode = "read-only"\n' : ''}developer_instructions = ${JSON.stringify(`${workflow}\n${capabilityInstructions(role.id)}\n${role.body}`)}\n\n[mcp_servers.verythinker]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify(server.args)}\nenabled_tools = ${JSON.stringify([...contract.operations, ...(role.id === 'manager' ? ['manager_run'] : [])])}\n`,
       });
     }
     for (const [event, internal] of [
@@ -308,7 +351,7 @@ export function adapterOutputs(root: string, config: AdapterConfig): ManagedOutp
       outputs.push({
         path: `.claude/agents/verythinker-${role.id}.md`,
         kind: 'file',
-        content: `---\nname: verythinker-${role.id}\ndescription: ${JSON.stringify(role.description)}\nmodel: ${JSON.stringify(model ?? 'inherit')}\n---\n\n${workflow}\n${role.body}`,
+        content: `---\nname: verythinker-${role.id}\ndescription: ${JSON.stringify(role.description)}\nmodel: ${JSON.stringify(model ?? 'inherit')}\ntools: ${claudeTools(role.id).join(', ')}\n---\n\n${workflow}\n${capabilityInstructions(role.id)}\n${role.body}`,
       });
     }
     for (const [event, internal] of [
@@ -357,7 +400,7 @@ export function adapterOutputs(root: string, config: AdapterConfig): ManagedOutp
       outputs.push({
         path: `.github/agents/verythinker-${role.id}.agent.md`,
         kind: 'file',
-        content: `---\nname: verythinker-${role.id}\ndescription: ${JSON.stringify(role.description)}\n${model ? `model: ${JSON.stringify(model)}\n` : ''}---\n\n${workflow}\n${role.body}`,
+        content: `---\nname: verythinker-${role.id}\ndescription: ${JSON.stringify(role.description)}\n${model ? `model: ${JSON.stringify(model)}\n` : ''}tools: ${JSON.stringify(copilotTools(role.id))}\n---\n\n${workflow}\n${capabilityInstructions(role.id)}\n${role.body}`,
       });
     }
     outputs.push({

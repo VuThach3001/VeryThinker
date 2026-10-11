@@ -586,7 +586,7 @@ test('corrected candidates replace old publication obligations only with a prese
     },
     github.publish,
   );
-  assert.equal(repaired.phase, 'completed');
+  assert.equal(repaired.phase, 'completed', JSON.stringify(repaired.publication_blockers));
   assert.deepEqual(getRecord(work.root, work.parent.meta.id).meta.data.knowledge_ids, [
     replacement.meta.id,
   ]);

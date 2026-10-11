@@ -20,10 +20,29 @@ import {
   requirementScope,
   strings,
   verify,
+  assignmentDocumentationProblems,
 } from './engineering.js';
 import { prepareContribution } from './packs.js';
 import { submitContribution } from './contributions.js';
 import type { ProjectRecord } from './types.js';
+import { readRoutingPolicy, routingProblems, assertRouting, readInvocation } from './routing.js';
+import {
+  readArchivePolicy,
+  prepareArchive,
+  publishArchive,
+  archiveStatus,
+  acceptedArchiveForWorkflow,
+  assertPrivateArchiveDestination,
+} from './archives.js';
+
+export interface WorkflowInput {
+  requirement?: string;
+  requirements?: string[];
+  title?: string;
+  invocation_id?: string;
+  request_id?: string;
+  change_type?: 'breaking' | 'breaking-change' | 'feature' | 'fix';
+}
 
 export interface AutomationPolicy {
   schema_version: 1;
@@ -95,35 +114,38 @@ function workflow(root: string, id: string): ProjectRecord {
     throw new Error('Provide a manager workflow ID.');
   return record;
 }
-export function beginWorkflow(
-  root: string,
-  input: {
-    requirement: string;
-    title?: string;
-    invocation_id?: string;
-    request_id?: string;
-  },
-): ProjectRecord {
+export function beginWorkflow(root: string, input: WorkflowInput): ProjectRecord {
   return withOperationLock(root, 'manager-intake', () => beginWorkflowClaimed(root, input));
 }
-function beginWorkflowClaimed(
-  root: string,
-  input: {
-    requirement: string;
-    title?: string;
-    invocation_id?: string;
-    request_id?: string;
-  },
-): ProjectRecord {
+function beginWorkflowClaimed(root: string, input: WorkflowInput): ProjectRecord {
   const policy = ensureAutomationPolicy(root);
   if (!policy.manager_enabled) throw new Error('The project manager entrypoint is disabled.');
-  const requirement = text(input.requirement, 'Requirement');
+  if (input.requirement !== undefined && input.requirements !== undefined)
+    throw new Error('Provide requirement or requirements, rather than both.');
+  const originals = input.requirements ?? [input.requirement!];
+  if (!Array.isArray(originals) || !originals.length || originals.length > 32)
+    throw new Error('Provide between one and 32 requirements.');
+  const requirements = originals.map((item, index) => text(item, `Requirement ${index + 1}`));
+  const requirement =
+    requirements.length === 1
+      ? requirements[0]!
+      : requirements.map((item, index) => `${index + 1}. ${item}`).join('\n');
+  const changeType =
+    input.change_type === 'breaking' ? 'breaking-change' : (input.change_type ?? 'feature');
+  if (!['breaking-change', 'feature', 'fix'].includes(changeType))
+    throw new Error('Invalid change classification.');
   const requestId = text(input.request_id ?? randomUUID(), 'Request ID', 256);
   const title = text(input.title ?? requirement.slice(0, 100), 'Title', 256);
   let parent = loadRecords(root).find(
     (r) => r.meta.data.kind === 'manager-workflow' && r.meta.data.request_id === requestId,
   );
-  if (parent && parent.meta.data.original_requirement !== requirement)
+  if (
+    parent &&
+    (parent.meta.data.original_requirement !== requirement ||
+      JSON.stringify(
+        parent.meta.data.original_requirements ?? [parent.meta.data.original_requirement],
+      ) !== JSON.stringify(requirements))
+  )
     throw new Error('Request ID already belongs to a different requirement.');
   if (!parent)
     parent = createRecord(root, {
@@ -135,6 +157,10 @@ function beginWorkflowClaimed(
         kind: 'manager-workflow',
         request_id: requestId,
         original_requirement: requirement,
+        original_requirements: requirements,
+        increment_id: randomUUID(),
+        change_type: changeType,
+        routing_required: readRoutingPolicy(root) !== null,
         invocation_id: input.invocation_id ?? randomUUID(),
         phase: 'intake',
         task_ids: [],
@@ -144,7 +170,10 @@ function beginWorkflowClaimed(
       body: `# Objective\n${requirement}\n\n# Resumption\nRead manager_status for the next action.\n`,
     });
   let rootRequirement = loadRecords(root).find(
-    (r) => r.meta.type === 'requirement' && r.meta.data.intake_workflow_id === parent!.meta.id,
+    (r) =>
+      r.meta.type === 'requirement' &&
+      r.meta.data.intake_workflow_id === parent!.meta.id &&
+      r.meta.data.batch_item === undefined,
   );
   if (!rootRequirement)
     rootRequirement = createRecord(root, {
@@ -159,7 +188,55 @@ function beginWorkflowClaimed(
       data: { requirement_id: rootRequirement.meta.id },
       links: [{ type: 'documents', target: rootRequirement.meta.id }],
     });
+  const leaves: string[] = [];
+  if (requirements.length > 1) {
+    for (const [index, item] of requirements.entries()) {
+      let leaf = loadRecords(root).find(
+        (record) =>
+          record.meta.type === 'requirement' &&
+          record.meta.data.intake_workflow_id === parent!.meta.id &&
+          record.meta.data.batch_item === index,
+      );
+      if (!leaf)
+        leaf = createRecord(root, {
+          type: 'requirement',
+          title: item.slice(0, 100),
+          owner: 'requirements',
+          data: {
+            intake_workflow_id: parent.meta.id,
+            batch_item: index,
+            acceptance_criteria: [],
+            source: 'user-request',
+          },
+          links: [{ type: 'derives-from', target: rootRequirement.meta.id }],
+          body: `# Stakeholder requirement\n${item}\n\n# Acceptance criteria\nRefine measurable criteria for this independently verifiable outcome.\n`,
+        });
+      leaves.push(leaf.meta.id);
+    }
+  } else leaves.push(rootRequirement.meta.id);
+  if (JSON.stringify(parent.meta.data.requirement_ids) !== JSON.stringify(leaves))
+    parent = updateRecord(root, parent.meta.id, {
+      data: { requirement_ids: leaves },
+      links: [
+        { type: 'documents', target: rootRequirement.meta.id },
+        ...leaves
+          .filter((target) => target !== rootRequirement.meta.id)
+          .map((target) => ({ type: 'documents' as const, target })),
+      ],
+    });
   return parent;
+}
+export function bindManagerInvocation(
+  root: string,
+  id: string,
+  invocationId: string,
+): ProjectRecord {
+  const parent = workflow(root, id);
+  assertRouting(root, 'manager', invocationId, { workflow_id: id, require_completed: false });
+  return updateRecord(root, id, { data: { invocation_id: invocationId } }, undefined, (current) => {
+    if (current.meta.revision !== parent.meta.revision)
+      throw new Error('Workflow changed before manager assignment.');
+  });
 }
 export const discussionRoles = [
   'researcher',
@@ -172,6 +249,8 @@ export const discussionRoles = [
   'release',
   'curator',
   'manager',
+  'codebase-analyst',
+  'check-executor',
 ] as const;
 export function discussWorkflow(
   root: string,
@@ -191,6 +270,8 @@ export function discussWorkflow(
   if (!discussionRoles.includes(input.role as (typeof discussionRoles)[number]))
     throw new Error('Discussion role must match an installed role contract.');
   const invocationId = text(input.invocation_id, 'Invocation ID', 256);
+  if (parent.meta.data.routing_required === true)
+    assertRouting(root, input.role, invocationId, { workflow_id: id, require_completed: false });
   if (input.role !== 'manager' && invocationId === parent.meta.data.invocation_id)
     throw new Error('Specialist discussion needs its own invocation identity.');
   const round = input.round ?? 1;
@@ -238,6 +319,15 @@ function currentDiscussions(root: string, id: string): ProjectRecord[] {
     .sort((a, b) => a.meta.id.localeCompare(b.meta.id)))
     latest.set(record.meta.owner, record);
   return [...latest.values()].filter((record) => {
+    const parent = workflow(root, id);
+    if (
+      parent.meta.data.routing_required === true &&
+      routingProblems(root, record.meta.owner, String(record.meta.data.invocation_id), {
+        workflow_id: id,
+        require_completed: true,
+      }).length
+    )
+      return false;
     const baseline = record.meta.data.source_baseline as Record<string, string>;
     return (
       baseline &&
@@ -263,6 +353,11 @@ function taskContract(task: ProjectRecord): string {
       documentation_paths: task.meta.data.documentation_paths,
       outputs: task.meta.data.outputs,
       documentation_required: task.meta.data.documentation_required,
+      routing_required: task.meta.data.routing_required,
+      workflow_id: task.meta.data.workflow_id,
+      recipe_instance_ids: task.meta.data.recipe_instance_ids,
+      protected_acceptance_paths: task.meta.data.protected_acceptance_paths,
+      required_tools: task.meta.data.required_tools,
     }),
   );
 }
@@ -295,6 +390,24 @@ function decideWorkflowClaimed(
   },
 ): ProjectRecord {
   const parent = workflow(root, id);
+  if (readRoutingPolicy(root) && parent.meta.data.routing_required !== true)
+    throw new Error(
+      'Legacy workflow planning requires alpha.3 migration and Sol reassessment; use a new increment for closed history.',
+    );
+  const archiveIntent = safePath(root, `.verythinker/archive-intents/${hash(id)}.json`);
+  if (
+    parent.meta.data.archive ||
+    acceptedArchiveForWorkflow(root, id) ||
+    (existsSync(archiveIntent) && JSON.parse(readFileSync(archiveIntent, 'utf8')).snapshot_id)
+  )
+    throw new Error(
+      'This increment has a frozen archive. Reconcile publication or start a new workflow increment; accepted history cannot be replanned.',
+    );
+  if (parent.meta.data.routing_required === true)
+    assertRouting(root, 'manager', String(parent.meta.data.invocation_id), {
+      workflow_id: id,
+      require_completed: false,
+    });
   const summary = text(input.summary, 'Summary');
   const rationale = text(input.rationale, 'Rationale');
   const rootRequirement = getRecord(root, String(parent.meta.data.requirement_id));
@@ -323,6 +436,15 @@ function decideWorkflowClaimed(
       );
   }
   const tasks = ids.map((taskId) => getRecord(root, taskId));
+  const leafRequirements = strings(parent.meta.data.requirement_ids).length
+    ? strings(parent.meta.data.requirement_ids)
+    : [rootRequirement.meta.id];
+  for (const requirementId of leafRequirements) {
+    if (!strings(getRecord(root, requirementId).meta.data.acceptance_criteria).length)
+      throw new Error(
+        `Refine measurable acceptance criteria for every requirement: ${requirementId}`,
+      );
+  }
   for (const task of tasks) {
     if (task.meta.type !== 'task' || !['draft', 'ready', 'blocked'].includes(task.meta.status))
       throw new Error('Plan tasks before implementation starts.');
@@ -333,12 +455,16 @@ function decideWorkflowClaimed(
         'Each task must trace to the stakeholder requirement or a derived requirement.',
       );
   }
+  for (const requirementId of leafRequirements)
+    if (!tasks.some((task) => allocatedTo(root, task, requirementId)))
+      throw new Error(`Every requirement needs a bounded implementation task: ${requirementId}`);
   // Assign documentation responsibility before the task baseline is recorded.
   for (const task of tasks)
     updateRecord(root, task.meta.id, {
       data: {
         workflow_id: id,
         documentation_required: true,
+        routing_required: parent.meta.data.routing_required === true,
         documentation_paths: task.meta.data.documentation_paths ?? [],
       },
     });
@@ -347,12 +473,13 @@ function decideWorkflowClaimed(
     // Dependencies inside this plan may be unaccepted; they gate dispatch, not planning.
     const report = verify(root, task.meta.id, 'design-ready');
     const failures = report.findings.filter(
-      (f) => !['dependency-not-accepted', 'dependency-stale'].includes(f.code),
+      (f) => !['dependency-not-accepted', 'dependency-stale', 'blocked'].includes(f.code),
     );
     if (failures.length) throw new Error(failures.map((f) => f.message).join('\n'));
   }
   const requirementIds = requirementAncestry(root, [
     String(parent.meta.data.requirement_id),
+    ...leafRequirements,
     ...readyTasks.flatMap(requirementsFor),
   ]);
   const requirements = Object.fromEntries(
@@ -432,6 +559,14 @@ function decisionProblems(root: string, parent: ProjectRecord): string[] {
   )
     return ['Manager decision does not belong to this workflow.'];
   const problems: string[] = [];
+  const leaves = strings(parent.meta.data.requirement_ids);
+  for (const requirementId of leaves)
+    if (
+      !strings(parent.meta.data.task_ids).some((taskId) =>
+        allocatedTo(root, getRecord(root, taskId), requirementId),
+      )
+    )
+      problems.push(`Requirement no longer has implementation coverage: ${requirementId}`);
   for (const [id, fingerprint] of Object.entries(
     decision.meta.data.requirement_baseline as Record<string, string>,
   ))
@@ -453,7 +588,47 @@ export function workflowStatus(root: string, id?: string): unknown {
       .filter((r) => r.meta.data.kind === 'manager-workflow')
       .map((r) => workflowStatus(root, r.meta.id));
   const parent = workflow(root, id);
+  let recoveredArchive: ReturnType<typeof acceptedArchiveForWorkflow> = null;
+  let archiveError: string | null = null;
+  try {
+    recoveredArchive = acceptedArchiveForWorkflow(root, id);
+  } catch (error) {
+    archiveError = String(error);
+  }
+  const intentPath = safePath(root, `.verythinker/archive-intents/${hash(id)}.json`);
+  const intent = existsSync(intentPath)
+    ? (JSON.parse(readFileSync(intentPath, 'utf8')) as { snapshot_id?: string; error?: string })
+    : null;
+  const completionPath =
+    typeof parent.meta.data.invocation_id === 'string' &&
+    /^[a-f0-9-]{36}$/.test(parent.meta.data.invocation_id)
+      ? safePath(root, `.verythinker/native/completion/${parent.meta.data.invocation_id}.json`)
+      : null;
+  const completionError =
+    completionPath && existsSync(completionPath)
+      ? JSON.parse(readFileSync(completionPath, 'utf8')).error
+      : null;
+  const closureBlockers = [
+    ...(intent?.error ? [intent.error] : []),
+    ...(completionError ? [completionError] : []),
+    ...(archiveError ? [archiveError] : []),
+  ];
   const questions = strings(parent.meta.data.open_questions);
+  const managerAttemptId =
+    parent.meta.data.native_manager_attempt_id ?? parent.meta.data.invocation_id;
+  let managerAttempt: ReturnType<typeof readInvocation> | null = null;
+  if (typeof managerAttemptId === 'string')
+    try {
+      managerAttempt = readInvocation(root, managerAttemptId);
+    } catch {
+      // Historical intake identities are not native invocation observations.
+    }
+  const managerBlocker = recoveredArchive
+    ? null
+    : (parent.meta.data.native_manager_blocker ??
+      (managerAttempt && ['blocked', 'waiting-native-permission'].includes(managerAttempt.state)
+        ? (managerAttempt.error ?? managerAttempt.state)
+        : null));
   const ids = strings(parent.meta.data.task_ids);
   const taskStates = ids.map((taskId) => {
     const task = getRecord(root, taskId);
@@ -467,8 +642,22 @@ export function workflowStatus(root: string, id?: string): unknown {
     };
   });
   const decisionFindings = parent.meta.data.decision_id ? decisionProblems(root, parent) : [];
+  const nativeCompletionFindings =
+    parent.meta.data.routing_required === true &&
+    ['completed', 'awaiting-native-completion'].includes(String(parent.meta.data.phase))
+      ? routingProblems(
+          root,
+          'manager',
+          typeof parent.meta.data.invocation_id === 'string'
+            ? parent.meta.data.invocation_id
+            : undefined,
+          { workflow_id: id },
+        )
+      : [];
   let nextAction: string;
   if (questions.length) nextAction = 'Clarify the recorded product questions with the user.';
+  else if (managerBlocker)
+    nextAction = 'Resolve the recorded native coordinator blocker and resume the saved increment.';
   else if (decisionFindings.length)
     nextAction = 'Reassess changed requirements/contracts and record a fresh specialist decision.';
   else if (!parent.meta.data.decision_id)
@@ -480,9 +669,12 @@ export function workflowStatus(root: string, id?: string): unknown {
   else if (taskStates.some((t) => t.status !== 'accepted' || !t.accepted.ok))
     nextAction =
       'Dispatch ready tasks, collect complete documentation/evidence, obtain separate reviews, and accept validated submissions.';
-  else if (parent.meta.data.phase === 'completed-with-blockers')
+  else if (parent.meta.data.phase === 'completed-with-blockers' || closureBlockers.length)
     nextAction =
       'Retry the saved publication blocker when credentials or the upstream become available.';
+  else if (nativeCompletionFindings.length)
+    nextAction =
+      'Wait for the native coordinator completion and automatic archive, or inspect its recorded blocker.';
   else if (parent.meta.data.phase === 'completed')
     nextAction =
       'Deliver the saved final report; resume only for a new requirement or changed baseline.';
@@ -491,20 +683,37 @@ export function workflowStatus(root: string, id?: string): unknown {
       'Curate qualified lessons and run manager_finish to prepare/submit documentation PRs and write the final report.';
   const phase = questions.length
     ? 'clarification-required'
-    : decisionFindings.length
-      ? 'reassessment-required'
-      : parent.meta.data.decision_id &&
-          taskStates.some((t) => t.status !== 'accepted' || !t.accepted.ok)
-        ? 'execution'
-        : parent.meta.data.phase;
+    : managerBlocker
+      ? 'native-blocked'
+      : decisionFindings.length
+        ? 'reassessment-required'
+        : parent.meta.data.decision_id &&
+            taskStates.some((t) => t.status !== 'accepted' || !t.accepted.ok)
+          ? 'execution'
+          : closureBlockers.length
+            ? 'completed-with-blockers'
+            : nativeCompletionFindings.length
+              ? 'awaiting-native-completion'
+              : recoveredArchive
+                ? 'completed'
+                : parent.meta.data.phase;
   return {
     workflow_id: id,
     requirement_id: parent.meta.data.requirement_id,
+    requirement_ids: parent.meta.data.requirement_ids ?? [parent.meta.data.requirement_id],
+    increment_id: parent.meta.data.increment_id ?? null,
+    change_type: parent.meta.data.change_type ?? 'feature',
     phase,
     persisted_phase: parent.meta.data.phase,
     policy: readAutomationPolicy(root),
     open_questions: questions,
     decision_findings: decisionFindings,
+    native_completion_findings: nativeCompletionFindings,
+    native_manager_attempt_id: typeof managerAttemptId === 'string' ? managerAttemptId : null,
+    native_manager_state: managerAttempt?.state ?? null,
+    native_manager_blocker: managerBlocker,
+    archive: parent.meta.data.archive ?? recoveredArchive?.publication ?? null,
+    closure_blockers: closureBlockers,
     tasks: taskStates,
     next_action: nextAction,
     final_report_id: parent.meta.data.final_report_id ?? null,
@@ -525,9 +734,10 @@ export function finishWorkflow(
     retired_candidates?: { knowledge_id: string; reason: string }[];
   },
   publish: typeof submitContribution = submitContribution,
+  archivePublisher: typeof publishArchive = publishArchive,
 ): unknown {
   return withOperationLock(root, `manager-${hash(id)}`, () =>
-    finishWorkflowClaimed(root, id, input, publish),
+    finishWorkflowClaimed(root, id, input, publish, archivePublisher),
   );
 }
 function finishWorkflowClaimed(
@@ -539,14 +749,40 @@ function finishWorkflowClaimed(
     retired_candidates?: { knowledge_id: string; reason: string }[];
   },
   publish: typeof submitContribution,
+  archivePublisher: typeof publishArchive,
 ): unknown {
   const parent = workflow(root, id);
+  if (
+    readRoutingPolicy(root) &&
+    parent.meta.data.routing_required !== true &&
+    (!['completed', 'completed-with-blockers'].includes(String(parent.meta.data.phase)) ||
+      typeof parent.meta.data.final_report_id !== 'string')
+  )
+    throw new Error(
+      'Pending legacy workflow requires alpha.3 migration and confirmed Sol coordination before closure.',
+    );
+  let managerCompleted = true;
+  if (parent.meta.data.routing_required === true) {
+    const receipt = assertRouting(
+      root,
+      'manager',
+      typeof parent.meta.data.invocation_id === 'string'
+        ? parent.meta.data.invocation_id
+        : undefined,
+      { workflow_id: id, require_completed: false },
+    );
+    managerCompleted = receipt!.state === 'completed' && receipt!.inference_completed;
+  }
   if (strings(parent.meta.data.open_questions).length)
     throw new Error('Resolve outstanding product questions before closing the workflow.');
   const decisionFindings = decisionProblems(root, parent);
   if (decisionFindings.length) throw new Error(decisionFindings.join('\n'));
   const taskIds = strings(parent.meta.data.task_ids);
   if (!taskIds.length) throw new Error('Workflow has no assigned tasks.');
+  if (parent.meta.data.routing_required === true) {
+    const problems = assignmentDocumentationProblems(root, id);
+    if (problems.length) throw new Error(problems.join('\n'));
+  }
   for (const taskId of taskIds) {
     const task = getRecord(root, taskId);
     if (task.meta.data.workflow_id !== id || task.meta.data.documentation_required !== true)
@@ -685,6 +921,26 @@ function finishWorkflowClaimed(
   const body = `# Objective\n${parent.meta.data.original_requirement}\n\n# Inputs and Sources\nRequirement: ${parent.meta.data.requirement_id}\nTasks: ${taskIds.join(', ')}\n\n# Decisions and Rationale\n${decision.meta.data.summary}\n${decision.meta.data.rationale}\nDecision record: ${decision.meta.id}\n\n# Results\nAll ${taskIds.length} assigned tasks passed current acceptance checks.\nDocumentation and separate review were validated before closure.\n\n# Evidence\n${taskIds.map((taskId) => `Trace ${taskId} for checked baselines, work records, evidence, and review.`).join('\n')}\n\n# Limitations\n${blockers.length ? blockers.join('\n') : 'Native model identity and execution capabilities are limited to recorded observations.'}\n\n# Lessons\n${knowledgeIds.length ? knowledgeIds.map((knowledgeId) => `${knowledgeId}: ${JSON.stringify(publications.find((p) => p.knowledge_id === knowledgeId))}`).join('\n') : noLessonReason}\n`;
   let reportId =
     typeof parent.meta.data.final_report_id === 'string' ? parent.meta.data.final_report_id : null;
+  const closureIntentPath = safePath(root, `.verythinker/archive-intents/${hash(id)}.json`);
+  if (!reportId && readArchivePolicy(root)?.enabled) {
+    const intent = existsSync(closureIntentPath)
+      ? JSON.parse(readFileSync(closureIntentPath, 'utf8'))
+      : {};
+    if (typeof intent.report_id === 'string') reportId = getRecord(root, intent.report_id).meta.id;
+    else {
+      const historicalReports = (
+        Array.isArray(parent.meta.data.history) ? parent.meta.data.history : []
+      ).map((item) => item.final_report_id);
+      reportId =
+        loadRecords(root).find(
+          (record) =>
+            record.meta.owner === 'manager' &&
+            record.meta.title === 'Manager final report' &&
+            record.meta.data.workflow_id === id &&
+            !historicalReports.includes(record.meta.id),
+        )?.meta.id ?? null;
+    }
+  }
   if (reportId) {
     if (getRecord(root, reportId).body !== body) updateRecord(root, reportId, {}, body);
   } else
@@ -696,18 +952,80 @@ function finishWorkflowClaimed(
       links: [{ type: 'documents', target: id }],
       body,
     }).meta.id;
+  if (readArchivePolicy(root)?.enabled) {
+    const intent = existsSync(closureIntentPath)
+      ? JSON.parse(readFileSync(closureIntentPath, 'utf8'))
+      : {};
+    atomicWrite(
+      closureIntentPath,
+      JSON.stringify({ ...intent, workflow_id: id, report_id: reportId }, null, 2) + '\n',
+    );
+  }
+  const recovered = acceptedArchiveForWorkflow(root, id);
+  let archive: unknown = parent.meta.data.archive ?? recovered?.publication ?? null;
+  if (managerCompleted && readArchivePolicy(root)?.enabled) {
+    const intentPath = safePath(root, `.verythinker/archive-intents/${hash(id)}.json`);
+    try {
+      assertCurrent(workflow(root, id));
+      const priorSnapshot =
+        (archive as { snapshot_id?: string } | null)?.snapshot_id ??
+        (existsSync(intentPath)
+          ? JSON.parse(readFileSync(intentPath, 'utf8')).snapshot_id
+          : undefined);
+      // Check destination setup before binding an immutable snapshot to it.
+      // Injected publishers are offline transaction fixtures, not native publication proof.
+      if (!priorSnapshot && archivePublisher === publishArchive)
+        assertPrivateArchiveDestination(root);
+      const snapshot = priorSnapshot
+        ? (archiveStatus(root, priorSnapshot) as { snapshot_id: string })
+        : prepareArchive(root, id, { disposition: 'accepted' });
+      atomicWrite(
+        intentPath,
+        JSON.stringify(
+          { workflow_id: id, report_id: reportId, snapshot_id: snapshot.snapshot_id },
+          null,
+          2,
+        ) + '\n',
+      );
+      const publication = archivePublisher(root, snapshot.snapshot_id);
+      archive = { ...publication };
+    } catch (error) {
+      blockers.push(`Project archive: ${error instanceof Error ? error.message : String(error)}`);
+      if (existsSync(intentPath))
+        atomicWrite(
+          intentPath,
+          JSON.stringify(
+            { ...JSON.parse(readFileSync(intentPath, 'utf8')), error: blockers.at(-1), at: now() },
+            null,
+            2,
+          ) + '\n',
+        );
+      // Publication intents live outside frozen records so an interrupted write can retry the same snapshot.
+      return {
+        ...(workflowStatus(root, id) as object),
+        phase: 'completed-with-blockers',
+        final_report: body,
+        publication_blockers: blockers,
+      };
+    }
+  }
   updateRecord(
     root,
     id,
     {
       status: 'verified',
       data: {
-        phase: blockers.length ? 'completed-with-blockers' : 'completed',
+        phase: blockers.length
+          ? 'completed-with-blockers'
+          : managerCompleted
+            ? 'completed'
+            : 'awaiting-native-completion',
         closed_at: now(),
         final_report_id: reportId,
         knowledge_ids: knowledgeIds,
         no_lesson_reason: noLessonReason ?? null,
         publications,
+        archive,
         publication_history: publicationHistory,
         publication_retirements: [
           ...(Array.isArray(parent.meta.data.publication_retirements)

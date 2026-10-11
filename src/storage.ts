@@ -16,6 +16,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { threadId } from 'node:worker_threads';
+import { deserialize, serialize as serializeSnapshot } from 'node:v8';
 import { parse, stringify } from 'yaml';
 import {
   linkTypes,
@@ -53,9 +54,26 @@ export function atomicWrite(path: string, value: string | Buffer): void {
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporary, value, { flag: 'wx' });
-    renameSync(temporary, path);
+    retryWindowsFileOperation(() => renameSync(temporary, path));
   } finally {
-    if (existsSync(temporary)) rmSync(temporary);
+    if (existsSync(temporary)) retryWindowsFileOperation(() => rmSync(temporary));
+  }
+}
+function retryWindowsFileOperation(action: () => void): void {
+  const delays = [10, 25, 50, 100, 200, 400];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      action();
+      return;
+    } catch (error) {
+      if (
+        process.platform !== 'win32' ||
+        !['EPERM', 'EACCES', 'EBUSY'].includes(String((error as NodeJS.ErrnoException).code)) ||
+        attempt >= delays.length
+      )
+        throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delays[attempt]);
+    }
   }
 }
 export function readConfig(root: string): ProjectConfig {
@@ -316,19 +334,70 @@ export function validateMetadata(value: unknown): Metadata {
     throw new Error(`Duplicate links in ${m.id}.`);
   return m;
 }
+// Only parsed content is memoized. Filesystem inventory, bytes, paths, and project
+// configuration remain freshly observed for every call, including nested gates.
+const parsedRecordLimit = 1024;
+const parsedRecordByteLimit = 32 * 1024 * 1024;
+const parsedRecords = new Map<string, { source: Buffer; snapshot: Buffer; bytes: number }>();
+let parsedRecordBytes = 0;
+function dropParsedRecord(key: string): void {
+  const entry = parsedRecords.get(key);
+  if (entry) {
+    parsedRecordBytes -= entry.bytes;
+    parsedRecords.delete(key);
+  }
+}
+function parseRecordBytes(bytes: Buffer, path: string): { meta: Metadata; body: string } {
+  const key = hash(bytes);
+  const cached = parsedRecords.get(key);
+  if (cached && cached.source.equals(bytes)) {
+    try {
+      const result = deserialize(cached.snapshot) as { meta: Metadata; body: string };
+      validateMetadata(result.meta);
+      parsedRecords.delete(key);
+      parsedRecords.set(key, cached);
+      return result;
+    } catch {
+      dropParsedRecord(key);
+    }
+  }
+  const source = bytes.toString('utf8').replace(/\r\n/g, '\n');
+  const match = /^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/.exec(source);
+  if (!match) throw new Error(`Missing YAML frontmatter: ${path}`);
+  const result = { meta: validateMetadata(parse(match[1]!)), body: match[2]! };
+  let snapshot: Buffer;
+  try {
+    snapshot = serializeSnapshot(result);
+  } catch {
+    // An unsupported snapshot remains a normal uncached parse, never a failure entry.
+    return result;
+  }
+  const weight = bytes.byteLength + snapshot.byteLength + key.length;
+  if (weight <= parsedRecordByteLimit) {
+    dropParsedRecord(key);
+    while (
+      parsedRecords.size >= parsedRecordLimit ||
+      parsedRecordBytes + weight > parsedRecordByteLimit
+    ) {
+      const oldest = parsedRecords.keys().next().value;
+      if (oldest === undefined) break;
+      dropParsedRecord(oldest);
+    }
+    parsedRecords.set(key, { source: bytes, snapshot, bytes: weight });
+    parsedRecordBytes += weight;
+  }
+  return result;
+}
 export function loadRecords(root: string): ProjectRecord[] {
   readConfig(root);
   const seen = new Set<string>();
   return filesUnder(root, '.verythinker/records')
     .filter((p) => p.endsWith('.md'))
     .map((path) => {
-      const source = readFileSync(safePath(root, path), 'utf8').replace(/\r\n/g, '\n');
-      const match = /^---\n([\s\S]*?)\n---(?:\n|$)([\s\S]*)$/.exec(source);
-      if (!match) throw new Error(`Missing YAML frontmatter: ${path}`);
-      const meta = validateMetadata(parse(match[1]!));
+      const { meta, body } = parseRecordBytes(readFileSync(safePath(root, path)), path);
       if (seen.has(meta.id)) throw new Error(`Duplicate record ID: ${meta.id}`);
       seen.add(meta.id);
-      return { meta, body: match[2]!, path: path.replaceAll('\\', '/') };
+      return { meta, body, path: path.replaceAll('\\', '/') };
     });
 }
 export function getRecord(root: string, id: string): ProjectRecord {
@@ -336,8 +405,11 @@ export function getRecord(root: string, id: string): ProjectRecord {
   if (!record) throw new Error(`Record not found: ${id}`);
   return record;
 }
+function canonicalBody(body: string): string {
+  return body.replaceAll('\r\n', '\n').trim() + '\n';
+}
 function serialize(record: ProjectRecord): string {
-  return `---\n${stringify(record.meta).trimEnd()}\n---\n${record.body.trim()}\n`;
+  return `---\n${stringify(record.meta).trimEnd()}\n---\n${canonicalBody(record.body)}`;
 }
 const prefixes: Record<string, string> = {
   requirement: 'REQ',
@@ -372,6 +444,14 @@ export function createRecord(root: string, input: CreateRecord): ProjectRecord {
       'templates',
       `${input.data?.kind === 'work-record' ? 'work-record' : input.type}.md`,
     );
+    const managedTask =
+      input.type === 'task' &&
+      existsSync(safePath(root, '.verythinker/routing.json')) &&
+      records.some(
+        (candidate) =>
+          candidate.meta.id === input.data?.workflow_id &&
+          candidate.meta.data.kind === 'manager-workflow',
+      );
     const record: ProjectRecord = {
       meta: {
         schema_version: 1,
@@ -384,13 +464,25 @@ export function createRecord(root: string, input: CreateRecord): ProjectRecord {
         created_at: date,
         updated_at: date,
         links: input.links ?? [],
-        data: input.data ?? {},
+        data: {
+          ...input.data,
+          ...(managedTask
+            ? {
+                documentation_required: true,
+                documentation_paths: input.data?.documentation_paths ?? [],
+              }
+            : {}),
+          ...(existsSync(safePath(root, '.verythinker/routing.json'))
+            ? { routing_required: true }
+            : {}),
+        },
       },
       body:
         input.body ??
         (existsSync(template) ? readFileSync(template, 'utf8') : `# ${input.title}\n`),
       path: '',
     };
+    record.body = canonicalBody(record.body);
     validateMetadata(record.meta);
     sequence[input.type] = number;
     atomicWrite(sequencePath, JSON.stringify(sequence, null, 2) + '\n');
@@ -409,6 +501,13 @@ export function updateRecord(
   return withLock(root, () => {
     const record = getRecord(root, id);
     precondition?.(record);
+    if (
+      record.meta.data.routing_required === true &&
+      patch.data &&
+      Object.hasOwn(patch.data, 'routing_required') &&
+      patch.data.routing_required !== true
+    )
+      throw new Error('Strict routing cannot be removed from a managed record.');
     if (patch.status === 'accepted' && record.meta.status !== 'accepted')
       throw new Error(
         'Use task accept or record approve to record a validated acceptance decision.',
@@ -421,6 +520,7 @@ export function updateRecord(
       updated_at: now(),
     };
     if (body !== undefined) record.body = body;
+    record.body = canonicalBody(record.body);
     validateMetadata(record.meta);
     atomicWrite(safePath(root, record.path), serialize(record));
     return record;
@@ -436,6 +536,7 @@ export function saveStatus(
     precondition?.();
     const record = getRecord(root, id);
     record.meta = { ...record.meta, status, revision: record.meta.revision + 1, updated_at: now() };
+    record.body = canonicalBody(record.body);
     atomicWrite(safePath(root, record.path), serialize(record));
     return record;
   });

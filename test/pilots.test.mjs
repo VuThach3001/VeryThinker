@@ -148,13 +148,18 @@ console.log(JSON.stringify({ implementation_actor: 'fixture-implementer',
 });
 
 for (const pilot of ['software', 'embedded']) {
-  test(`${pilot} workflow records actual checks, resumes, and requires explicit independent reviews`, async (t) => {
+  test(`${pilot} legacy workflow fixture records actual checks, resumes, and requires explicit independent reviews`, async (t) => {
     const { buildWorkflow } = await import('../examples/workflow.mjs');
-    const { acceptTask, getRecord, prepareContribution, reviewRecord, verify } =
+    const { acceptTask, getRecord, prepareContribution, readRoutingPolicy, reviewRecord, verify } =
       await import('../dist/index.js');
     const dir = await mkdtemp(join(tmpdir(), `verythinker-${pilot}-workflow-`));
     t.after(() => rm(dir, { recursive: true, force: true }));
     const report = await buildWorkflow(dir, pilot);
+    assert.equal(report.execution_mode, 'legacy-policy-fixture');
+    assert.equal(report.installation.performed, false);
+    assert.equal(readRoutingPolicy(dir), null);
+    assert.ok(report.limitations.some((limitation) => limitation.includes('native model routing')));
+    assert.equal(report.acceptance_status, 'submitted-awaiting-independent-review');
     assert.equal(report.gates.ready.ok, true);
     assert.equal(report.gates.accepted.ok, false);
     assert.ok(

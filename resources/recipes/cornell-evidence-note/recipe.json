@@ -1,0 +1,13 @@
+{
+  "id": "cornell-evidence-note",
+  "version": "1.0.0",
+  "applicability": "Source-backed research, code analysis, guidance, root-cause investigation, and learning with a concrete demonstration and separate practice/answer artifacts.",
+  "limitations": [
+    "Format and provenance validation cannot establish semantic correctness.",
+    "External sources record their retrieval date; automatic remote freshness is unavailable.",
+    "Observed outcomes require actual passing evidence; expected results remain labelled expected."
+  ],
+  "parameter_schema": {
+    "note": "Complete CornellInput: visible path, topic, kind, context, constraints, cues, main_notes, sources, demonstration, failure_cases, practice, summary, optional engineering links."
+  }
+}

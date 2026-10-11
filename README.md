@@ -1,8 +1,8 @@
 # VeryThinker
 
-VeryThinker turns one engineering requirement into a manager-led workflow in native **Codex, Claude Code, or GitHub Copilot**. The manager discusses with specialists, reports decisions, delivers implementation and documentation, verifies evidence, obtains independent review, finishes tasks, and prepares reviewed shared knowledge.
+VeryThinker provides a manager-led engineering workflow from one requirement. Alpha.3 strict execution uses native **Codex**; adapters are also generated for **Claude Code and GitHub Copilot**, with exact-model execution restricted until verified. The manager discusses with specialists, reports decisions, delivers implementation and documentation, verifies evidence, obtains independent review, finishes tasks, and prepares reviewed shared knowledge.
 
-**Status: `0.1.0-alpha.2`, local prerelease.** This repository does not claim an npm publication. Generated native configuration and core workflow behavior are tested; authenticated skill discovery, effective model routing, MCP invocation, and hooks require recorded client conformance runs. See [compatibility](docs/compatibility.md) and [release criteria](docs/release.md).
+**Status: `0.1.0-alpha.3`, local prerelease.** Alpha.3 adds exact native Codex routing receipts, batch requirements, private project archives, Cornell knowledge, and reviewed parameterized recipes. Actual Sol/Luna inference access is recorded separately from engineering-increment acceptance and full client conformance. See [compatibility](docs/compatibility.md), [validation](docs/validation.md), and [release criteria](docs/release.md).
 
 All instructions, skills, documentation, CLI output, and generated records are in English.
 
@@ -20,7 +20,7 @@ npm run package:smoke
 In a target project, install that tarball. The following PowerShell example uses this checkout's default path; replace it when needed:
 
 ```powershell
-npm install --save-dev D:/workspace/VeryThinker/artifacts/verythinker-0.1.0-alpha.2.tgz
+npm install --save-dev D:/workspace/VeryThinker/artifacts/verythinker-0.1.0-alpha.3.tgz
 npx verythinker init --name "My project" --profile software --platforms codex,claude,copilot
 ```
 
@@ -44,7 +44,9 @@ Preserve configuration across application restarts.
 
 The managed instructions automatically select the manager skill. The manager owns requirements, internal specialist discussion, final engineering decisions, bounded assignments, documentation, checks, review, task acceptance, and qualified knowledge contributions. It asks for missing product intent or an actual external blocker; routine decisions and record-management commands remain internal.
 
-Default project policy enables automatic creation of independently reviewed generalized documentation/knowledge draft PRs to the shared repository. Project-specific records and logs stay local. Human approval applies to merging the proposal. Read [the manager-first workflow](docs/autonomous-manager.md) for policy, resumption, and native execution limits.
+Give one requirement or several related requirements in the same request. The managed coordinator uses **`gpt-6.1-sol`** for requirements, design, verification strategy, and independent review. Bounded implementation, research, and routine checks prefer **`gpt-6-luna`**; **`gpt-5.6-terra`** is permitted only after native execution confirms Luna is unavailable. A signed receipt from the pinned Codex App Server binds each invocation to its actual selected model and native thread/turn. Unconfirmed routing blocks affected work.
+
+Default project policy enables accepted increment snapshots in a private project namespace, and independently reviewed generalized knowledge draft PRs to the shared library. Project records, implementation, and verification inputs retain their original paths and hashes in the private snapshot. Shared knowledge merging remains a human decision. Read [the manager-first workflow](docs/autonomous-manager.md) for policy, resumption, and native execution limits.
 
 The manager applies an iterative V-model:
 
@@ -88,11 +90,14 @@ The CLI and local stdio MCP server share the same core. Commands return structur
 | `workflow`                           | Record manager intake, internal discussion, decisions, status, and closure |
 | `check`, `review`, `trace`, `verify` | Execute checks, review, inspect impact, and evaluate gates                 |
 | `memory`, `pack`, `index`            | Retrieve history, manage knowledge, and rebuild the index                  |
+| `native`, `capability`               | Dispatch native roles, observe model receipts, and resolve approved tools  |
+| `archive`                            | Prepare, publish, inspect, and restore private project increments          |
+| `note`, `recipe`                     | Cornell knowledge and reviewed parameterized engineering procedures        |
 | `mcp`                                | Start the local MCP server                                                 |
 
 The manager uses MCP or the CLI internally. `npx verythinker --help` remains available for debugging and direct inspection; the user does not need to run each workflow step.
 
-Ten [role contracts](docs/roles.md) cover manager, researcher, requirements engineer, architect, component owner, developer, verifier, reviewer, release engineer, and knowledge curator. Activate roles as needed. Model tiers `economy`, `balanced`, and `strong` are configurable requests; record actual model observations separately. Start with at most three workers and escalate repeated failure after one repair attempt.
+Twelve [role contracts](docs/roles.md) include a dedicated codebase analyst and check executor. Verification strategy belongs to Sol; prescribed execution belongs to a cheaper worker. Run at most three workers and escalate repeated failure after one repair attempt. Strict Codex routing is the alpha.3 default. Claude/Copilot adapters retain their resources while exact-model execution remains restricted until verified.
 
 ## Persistent records and reusable knowledge
 
@@ -100,13 +105,19 @@ Each project stores authoritative Markdown/YAML records under `.verythinker/reco
 
 The manager archives required evidence logs/receipts under `.verythinker/evidence` before final review and inspects their contents before sharing.
 
+Each request batch receives a stable increment ID and individually traceable requirement IDs. Accepted releases use project SemVer, initially `1.0.0`, under `codex/projects/<name>-<project-id>/baseline`, `increments/<increment-id>`, and `releases/<version>`. Working checkpoints append to increment history; accepted release snapshots are immutable. A private archive includes related records, changed implementation, verification inputs, and pack/tool/recipe locks. Sensitive content and inaccessible private upstreams produce explicit publication blockers.
+
 Every assignment writes a substantive standard work record: Objective, Inputs and Sources, Decisions and Rationale, Results, Evidence, Limitations, and Lessons. Required project documentation is part of the reviewed deliverable. A new session resumes using current workflow/task records.
 
 Knowledge packs carry provenance, applicability, assumptions, limitations, dependencies, and locked versions/hashes. Similarity suggests candidates; the manager assesses applicability. The built-in `engineering-basics` pack supplies a starting checklist.
 
+[Cornell notes](docs/cornell.md) turn research, analysis, guidance, root causes, and lessons into visible source-backed documents with concrete demonstrations and separate runnable practice/answer artifacts. The quote **“DO NOT JUST TALK ABOUT IT — SHOW IT”** appears in every note. Generated knowledge records reference the authoritative narrative and its hashes; user-written practice solutions are preserved.
+
+[Versioned recipes](docs/recipes.md) provide Cornell evidence notes, scalar configuration persistence, and embedded hysteresis load control. Sol reviews and freezes parameters, coverage, expected outcomes, oracle rationale, and tolerances before a worker executes them. A developer generates implementation; an independent check executor records actual checks. Changed acceptance artifacts require reviewed reassessment.
+
 The curator derives generalized candidates from reviewed project lessons and obtains a current separate generalization review. `.verythinker/automation.json` controls automatic draft PR creation and its upstream repository, defaulting to `VuThach3001/VeryThinker`. The manager submits qualified public-safe material under this saved policy and records the PR for recovery. Authentication and repository write access are required; failures remain explicit blockers. Submission never merges or publishes a package. Tests use a simulated GitHub API, and local packaging creates no real upstream PR.
 
-The optional CodeGraph descriptor pins `@colbymchenry/codegraph@1.6.2` and is disabled/unverified by default. The recorded Windows fixture passed twelve checks. Explicit enablement accepts a matching conformance report and the exact server executable/arguments; see [CodeGraph setup](docs/codegraph.md). Code-context discovery complements reviewed requirements traceability.
+The role-scoped gateway installs only applicable approved providers into an isolated tool cache: CodeGraph `1.6.2`, Context7 `4.3.0`, and Playwright MCP `0.0.83`, with version/integrity locks. Required missing capabilities block dispatch; optional substitutions are recorded. Existing CodeGraph conformance remains a twelve-check Windows fixture; project freshness and native tool discovery still need applicable evidence. Code-context discovery complements reviewed requirements traceability.
 
 ## Pilots and validation
 
@@ -120,7 +131,7 @@ node scripts/evaluate.mjs matrix
 
 Automated coverage includes record integrity, stale evidence/reviews, dependency handling, adapter preservation, MCP core operations, and pilot behavior. `examples/verify.mjs` records actual pilot results; compiler and ngspice checks require their tools to be supplied. Embedded results demonstrate their stated simulation/compilation environment, with physical testing recorded separately.
 
-The evaluation matrix plans **18 native agent trials**: two pilots, three configurations, and three repetitions. One actual trial was blocked by native execution policy; seventeen remain unrecorded. Routing benefits remain unverified. See the [validation report](docs/validation.md) and [evaluation guidance](docs/release.md#agent-evaluation).
+The historical evaluation matrix plans **18 native agent trials**: two pilots, three configurations, and three repetitions. One alpha.2 trial was blocked by native execution policy; seventeen remain unrecorded. Alpha.3's selected routing default is an engineering policy; measured cost/time benefits remain unverified. See the [validation report](docs/validation.md) and [evaluation guidance](docs/release.md#agent-evaluation).
 
 ## Design basis and license
 

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "source_commit": "5561110ca4b91bc360c79a5e335936b80bd65d07",
+  "summarized_at": "2026-10-11T15:44:14.228Z",
+  "project": "artifacts/native-managed-e2e",
+  "same_measured_inventory": true,
+  "record_files": 126,
+  "record_bytes": 1443693,
+  "baseline_runtime_sha256": "07dd7ace1a744a4c0c2445a56fe3a073acc1d589a37f3d540842a12adb41e1f2",
+  "measured_prototype_runtime_sha256": "bf2dfe0852771de8efabd24765744963f7c1a56abfabf71ff2b96d374ba55b2b",
+  "final_runtime_sha256": "2987cd630efb179766be53c803c9ed3f61ab6e150014fecf2915084d92f42d9a",
+  "measured_prototype_entry_bound": 256,
+  "final_entry_bound": 1024,
+  "retained_payload_byte_bound": 33554432,
+  "median_get_ms": {
+    "baseline": 753.9544999999998,
+    "serial_prototype": 508.6292000000012,
+    "descriptive_reduction_percent": 32.538475465031205
+  },
+  "cost_split": {
+    "safe_path_ms": 78.12709999999973,
+    "read_ms": 447.3961999999997,
+    "hash_ms": 12.196400000001233,
+    "parse_validate_ms": 489.71300000000144,
+    "serialize_ms": 12.023999999999774,
+    "deserialize_validate_ms": 12.818700000000547
+  },
+  "realpath_experiment": [
+    {
+      "kind": "javascript",
+      "calls": 63,
+      "elapsed_ms": 5.3922000000000025
+    },
+    {
+      "kind": "native",
+      "calls": 63,
+      "elapsed_ms": 9.079300000000018
+    }
+  ],
+  "validation": {
+    "critical_cache_tests": 4,
+    "existing_core_freshness_tests": 5,
+    "above_bound_1030_record_regression": "passed; 91.51s while the broad filesystem suite was active",
+    "independent_temporary_project_probe": "six scenarios passed"
+  },
+  "observations": [
+    "Exact fresh byte comparison avoids timestamp-based stale records; inventory/configuration/symlink checks remain unchanged.",
+    "V8 snapshots preserve allowed alias/value shapes and isolate returned nested mutations.",
+    "Measured warm-get reduction is descriptive, variable, and confined to this 126-record Windows corpus.",
+    "The final runtime changes only the count bound from the measured prototype; no new live timing was taken during the broad suite.",
+    "Native realpath was slower in the bounded diagnostic, so safePath was left unchanged."
+  ],
+  "limitations": [
+    "No claim of complete workflow latency, model cost, or performance for arbitrary larger projects.",
+    "Fresh disk reads and physical-path checks remain per-call costs.",
+    "Both count and byte limits can evict parsed snapshots; correctness is unchanged when the working set exceeds either."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "client_version": "0.153.4",
+  "source": "Codex app-server generate-json-schema from codex-cli 0.153.4",
+  "source_url": "https://github.com/openai/codex/tree/rust-v0.153.4/codex-rs/app-server-protocol",
+  "thread_start_required": [
+    "approvalPolicy",
+    "approvalsReviewer",
+    "cwd",
+    "model",
+    "modelProvider",
+    "sandbox",
+    "thread"
+  ],
+  "thread_resume_required": [
+    "approvalPolicy",
+    "approvalsReviewer",
+    "cwd",
+    "model",
+    "modelProvider",
+    "sandbox",
+    "thread"
+  ],
+  "turn_completed_required": ["threadId", "turn"],
+  "model_rerouted_required": ["fromModel", "reason", "threadId", "toModel", "turnId"],
+  "fixture_kind": "protocol-shape-only-no-inference"
+}

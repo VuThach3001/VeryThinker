@@ -1,0 +1,15 @@
+{
+  "id": "software-config-persistence",
+  "version": "1.0.0",
+  "applicability": "Small Node.js configuration module with exact JSON schema, scalar field validation, missing-file defaults, and atomic same-filesystem replacement.",
+  "limitations": [
+    "Scalar integer, number, string, and Boolean fields only; no nested structures or migrations.",
+    "Atomic rename relies on the host filesystem; power-loss durability and concurrent-writer ordering require separate requirements.",
+    "Node.js runtime and local storage only."
+  ],
+  "parameter_schema": {
+    "output_dir": "Canonical visible project-relative directory",
+    "schema_version": "Positive integer",
+    "fields": "Non-empty safe field map: type, default, optional numeric min/max, optional enum"
+  }
+}

@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -54,7 +62,8 @@ try {
   run([npmCli, 'install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], workspace);
   const installed = join(workspace, 'node_modules/verythinker');
   const cli = join(installed, 'dist/cli.js');
-  const invoke = (args) => JSON.parse(run([cli, ...args, '--project', workspace], workspace));
+  let project = workspace;
+  const invoke = (args) => JSON.parse(run([cli, ...args, '--project', project], project));
   writeFileSync(join(workspace, 'AGENTS.md'), '# Existing project instructions\n');
   const initialization = invoke([
     'init',
@@ -66,28 +75,118 @@ try {
     'codex,claude,copilot',
   ]);
   assert.equal(initialization.config.schema_version, 1);
+  assert.equal(initialization.installation.version, '0.1.0-alpha.3');
   assert.ok(
     readFileSync(join(workspace, 'AGENTS.md'), 'utf8').startsWith(
       '# Existing project instructions',
     ),
   );
   const core = await import(pathToFileURL(join(installed, 'dist/index.js')).href);
-  mkdirSync(join(workspace, 'src'));
-  writeFileSync(join(workspace, 'src/value.mjs'), 'export const value = 1;\n');
-  const requirement = core.createRecord(workspace, {
+  assert.equal(
+    readdirSync(join(workspace, '.verythinker/roles')).filter((path) => path.endsWith('.md'))
+      .length,
+    12,
+  );
+  assert.equal(core.listRecipes().length, 3);
+  assert.equal(core.readRoutingPolicy(workspace).strong_model, 'gpt-6.1-sol');
+  const strictRequirement = core.createRecord(workspace, {
+    type: 'requirement',
+    title: 'Strict package routing fixture',
+    data: { acceptance_criteria: ['Unconfirmed execution must remain blocked.'] },
+  });
+  const strictTask = core.createRecord(workspace, {
+    type: 'task',
+    title: 'Reject asserted model observations',
+    links: [{ type: 'satisfies', target: strictRequirement.meta.id }],
+    data: {
+      acceptance_criteria: ['No fake invocation can satisfy strict dispatch.'],
+      allowed_paths: ['src'],
+    },
+  });
+  assert.throws(
+    () =>
+      core.startTask(
+        workspace,
+        strictTask.meta.id,
+        'gpt-6-luna',
+        'gpt-6-luna',
+        'asserted-package-fixture',
+      ),
+    /native|receipt|routing|invocation/i,
+  );
+  assert.equal(core.getRecord(workspace, strictTask.meta.id).meta.status, 'draft');
+  const edited = join(workspace, '.verythinker/roles/developer.md');
+  writeFileSync(edited, 'User edits preserved.\n');
+  assert.ok(
+    invoke(['update']).conflicts.some(
+      (conflict) => conflict.path === '.verythinker/roles/developer.md',
+    ),
+  );
+  assert.equal(readFileSync(edited, 'utf8'), 'User edits preserved.\n');
+  const strictClient = new Client({ name: 'packaged-strict-discovery', version: '1.0.0' });
+  await strictClient.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args: [cli, 'mcp', '--project', workspace],
+      stderr: 'pipe',
+    }),
+  );
+  try {
+    const tools = (await strictClient.listTools()).tools;
+    for (const name of [
+      'native_dispatch',
+      'native_status',
+      'native_wait',
+      'native_interrupt',
+      'native_resume',
+      'capability_describe',
+      'capability_resolve',
+      'capability_invoke',
+      'archive_prepare',
+      'archive_publish',
+      'archive_status',
+      'note_create',
+      'note_validate',
+      'recipe_list',
+      'recipe_prepare',
+      'recipe_run',
+      'recipe_revise',
+    ])
+      assert.ok(
+        tools.some((tool) => tool.name === name),
+        `Installed MCP exposes ${name}.`,
+      );
+    const refusal = await strictClient.callTool({
+      name: 'task_start',
+      arguments: { id: strictTask.meta.id, invocation_id: 'asserted-package-fixture' },
+    });
+    assert.equal(refusal.isError, true);
+    assert.match(refusal.content[0].text, /native|receipt|routing|invocation/i);
+  } finally {
+    await strictClient.close();
+  }
+  // Legacy fixtures intentionally have no installed routing policy. They establish
+  // packaged engineering mechanics, never authenticated native execution.
+  project = join(workspace, 'legacy-workflow');
+  mkdirSync(project);
+  core.initialize(project, { project_id: 'LEGACY-SMOKE', profile: 'basic' });
+  assert.equal(core.readRoutingPolicy(project), null);
+  mkdirSync(join(project, 'src'));
+  writeFileSync(join(project, 'src/value.mjs'), 'export const value = 1;\n');
+  const requirement = core.createRecord(project, {
     type: 'requirement',
     title: 'Packaged value',
     owner: 'requirements',
     data: { acceptance_criteria: ['The value equals one.'] },
   });
-  const task = core.createRecord(workspace, {
+  const task = core.createRecord(project, {
     type: 'task',
     title: 'Verify packaged value',
     owner: 'developer',
     links: [{ type: 'satisfies', target: requirement.meta.id }],
     data: { acceptance_criteria: ['Value is one.'], allowed_paths: ['src'] },
   });
-  const check = core.createRecord(workspace, {
+  const check = core.createRecord(project, {
     type: 'check',
     title: 'Packaged verification',
     links: [{ type: 'verifies', target: requirement.meta.id }],
@@ -128,18 +227,10 @@ try {
     'packaged-independent-review-fixture',
   ]);
   assert.equal(invoke(['task', 'accept', task.meta.id]).meta.status, 'accepted');
-  removeManaged(join(workspace, '.verythinker/cache'));
-  removeManaged(join(workspace, '.verythinker/runs'));
+  removeManaged(join(project, '.verythinker/cache'));
+  removeManaged(join(project, '.verythinker/runs'));
   assert.equal(invoke(['verify', task.meta.id, '--gate', 'accepted']).ok, true);
   assert.equal(invoke(['memory', 'search', 'Packaged']).length > 0, true);
-  const edited = join(workspace, '.verythinker/roles/developer.md');
-  writeFileSync(edited, 'User edits preserved.\n');
-  assert.ok(
-    invoke(['update']).conflicts.some(
-      (conflict) => conflict.path === '.verythinker/roles/developer.md',
-    ),
-  );
-  assert.equal(readFileSync(edited, 'utf8'), 'User edits preserved.\n');
   const client = new Client({ name: 'packaged-smoke', version: '1.0.0' });
   let managerWorkflow;
   let managerTask;
@@ -147,7 +238,7 @@ try {
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
-      args: [cli, 'mcp', '--project', workspace],
+      args: [cli, 'mcp', '--project', project],
       stderr: 'pipe',
     }),
   );
@@ -178,7 +269,7 @@ try {
     assert.equal(JSON.parse(result.content[0].text).ok, true);
 
     // This is an automated coordination/gate fixture, not a native-agent quality evaluation.
-    const demo = join(workspace, 'manager-demo');
+    const demo = join(project, 'manager-demo');
     mkdirSync(join(demo, 'src'), { recursive: true });
     mkdirSync(join(demo, 'docs'), { recursive: true });
     writeFileSync(join(demo, 'src/value.mjs'), 'export const managedValue = 7;\n');
@@ -198,7 +289,7 @@ try {
     });
     assert.equal(recovered.meta.id, managerWorkflow.meta.id);
     const managerRequirement = core.updateRecord(
-      workspace,
+      project,
       managerWorkflow.meta.data.requirement_id,
       {
         data: {
@@ -209,7 +300,7 @@ try {
         },
       },
     );
-    managerTask = core.createRecord(workspace, {
+    managerTask = core.createRecord(project, {
       type: 'task',
       title: 'Deliver documented managed value',
       owner: 'developer',
@@ -221,7 +312,7 @@ try {
         outputs: ['manager-demo/src/value.mjs', 'manager-demo/docs/value.md'],
       },
     });
-    const managerCheck = core.createRecord(workspace, {
+    const managerCheck = core.createRecord(project, {
       type: 'check',
       title: 'Check managed numeric export',
       owner: 'verifier',
@@ -321,7 +412,7 @@ try {
     const rejected = await client.callTool({ name: 'manager_finish', arguments: closure });
     assert.equal(rejected.isError, true);
     assert.match(rejected.content[0].text, /independent review/i);
-    assert.equal(core.getRecord(workspace, managerTask.meta.id).meta.status, 'submitted');
+    assert.equal(core.getRecord(project, managerTask.meta.id).meta.status, 'submitted');
     invoke([
       'review',
       managerTask.meta.id,
@@ -335,21 +426,21 @@ try {
     const completed = await call('manager_finish', closure);
     assert.equal(completed.phase, 'completed');
     assert.deepEqual(completed.publication_blockers, []);
-    assert.equal(core.getRecord(workspace, managerTask.meta.id).meta.status, 'accepted');
+    assert.equal(core.getRecord(project, managerTask.meta.id).meta.status, 'accepted');
     assert.match(completed.final_report, /Documentation and separate review were validated/);
     managerFinalReportId = completed.final_report_id;
     const repeated = await call('manager_finish', { workflow_id: managerWorkflow.meta.id });
     assert.equal(repeated.final_report_id, managerFinalReportId);
     assert.equal(
-      core.loadRecords(workspace).filter((record) => record.meta.title === 'Manager final report')
+      core.loadRecords(project).filter((record) => record.meta.title === 'Manager final report')
         .length,
       1,
     );
   } finally {
     await client.close();
   }
-  removeManaged(join(workspace, '.verythinker/cache'));
-  removeManaged(join(workspace, '.verythinker/runs'));
+  removeManaged(join(project, '.verythinker/cache'));
+  removeManaged(join(project, '.verythinker/runs'));
   const managerResumed = invoke(['workflow', 'status', managerWorkflow.meta.id]);
   assert.equal(managerResumed.phase, 'completed');
   assert.equal(managerResumed.final_report_id, managerFinalReportId);
@@ -369,6 +460,11 @@ try {
       'tarball-install',
       'resource-resolution',
       'three-adapter-generation',
+      'twelve-role-generation',
+      'three-versioned-recipe-resolution',
+      'strict-routing-policy-defaults',
+      'strict-CLI-and-MCP-unconfirmed-invocation-rejection',
+      'native-capability-archive-Cornell-recipe-MCP-discovery',
       'configuration-preservation',
       'real-check',
       'evidence-archive',
@@ -389,8 +485,9 @@ try {
       'manager-new-process-resumption-after-cache-and-private-log-removal',
     ],
     limitations: [
-      'Specialist, developer, and reviewer identities are automated coordination/gate fixtures, not native agent invocations or model quality measurements.',
-      'Native clients and remote publication are not exercised.',
+      'The complete engineering lifecycle intentionally uses a separately initialized legacy-policy project; automated identities establish core mechanics only.',
+      'Installed alpha.3 strict policy is exercised for missing-receipt rejection and discovery, not authenticated inference.',
+      'Native account/model access, remote archives, and upstream PR publication are not exercised by package smoke.',
     ],
   };
   mkdirSync(join(repository, 'artifacts'), { recursive: true });

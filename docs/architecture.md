@@ -4,7 +4,7 @@ Status: **v1 design baseline**. For current command arguments, use `verythinker 
 
 ## One package with one engineering core
 
-The package contains a TypeScript core, CLI, local MCP server, platform adapters, portable role/skill resources, record templates, guides, packs, and pilots. CLI and MCP invoke the same operations; native clients execute their own agent runs. VeryThinker does not require a separate model API runtime for v1.
+The package contains a TypeScript core, CLI, local MCP server, platform adapters, portable role/skill resources, record templates, guides, packs, and pilots. CLI and MCP invoke the same operations. Alpha.3 adds a bounded native Codex App Server bridge using project-local runtime `0.162.1` and native authentication/permissions. It launches and observes native threads instead of introducing a separate model API service.
 
 ```mermaid
 flowchart TD
@@ -17,14 +17,19 @@ flowchart TD
     Core --> Events[Per-run JSONL events]
     Core --> Index[Rebuildable SQLite and FTS5 index]
     Packs[Versioned knowledge packs] --> Core
-    Graph[Optional code-context provider] --> Client
+    Core --> Bridge[Native Codex bridge and signed receipts]
+    Bridge --> Threads[Sol coordinator and cheaper workers]
+    Core --> Gateway[Role-scoped capability gateway]
+    Gateway --> Providers[Pinned applicable providers]
+    Core --> Archive[Private project snapshots and release history]
+    Core --> Notes[Visible Cornell notes and frozen recipes]
 ```
 
 The provider assists source discovery. Reviewed requirements traceability remains in engineering records. Hooks assist execution, while gate decisions remain available through core operations when hooks are disabled.
 
 ## Autonomous native manager
 
-Managed instructions route an ordinary engineering requirement to the manager skill. `src/manager.ts` persists intake, actual specialist contributions, the integrated decision, bounded assignments, and closure. The active native manager dispatches agents and operates MCP or CLI; the package does not introduce a second model runtime. [CAMEL research](camel-research.md) supplies the source-backed coordination patterns adopted independently.
+Managed instructions route an ordinary requirement or batch to the manager skill. The manager persists stable increment and requirement IDs, specialist contributions, the integrated decision, bounded assignments, and closure. Native receipts bind role/workflow/task to requested and selected model, provider, effort, thread/turn, runtime/configuration hashes, interruptions, rerouting, and permission blockers. Sol owns requirements, architecture, verification strategy, and independent review; workers prefer Luna with evidence-based Terra fallback. [CAMEL research](camel-research.md) supplies coordination patterns adopted independently.
 
 Assignments carry a mandatory documentation contract. Submission captures substantive seven-section work records and affected documentation hashes; acceptance requires current execution evidence and review from an invocation that has never implemented that assignment. Requirement baselines include transitive allocation ancestry. Replanning preserves superseded tasks, evidence, reports, and publication history.
 
@@ -50,7 +55,19 @@ Installed content carries version and content hashes. Upgrade unchanged managed 
 
 Project records hold project-specific knowledge. Shared packs contain generalized lessons with provenance, applicability, assumptions, limitations, and dependencies. Projects select multiple packs and lock identity, version, and content hash. Similarity suggests candidates; applicability requires an engineering decision.
 
-An upstream contribution remains a separate reviewed candidate. Human approval precedes merging it into the shared library. A project branch is a delivery mechanism for changes rather than an identity for its knowledge.
+An upstream contribution remains a separate reviewed generalized candidate. Human approval precedes merging it into the shared library. Private project namespaces retain append-only working increments and immutable accepted SemVer releases. A frozen workspace snapshot preserves original record bytes and relative paths, required implementation/evidence inputs, and configuration/pack/tool/recipe locks. A manifest records file hashes, source revisions, omissions, and the captured archive baseline; publication receipts remain outside the frozen snapshot. Concurrent baseline movement triggers reassessment before fast-forward advancement.
+
+## Practical knowledge and protected recipes
+
+Cornell documents own readable narratives in visible project folders. Linked knowledge records store artifact hashes, sources/locators, retrieval dates, and engineering relationships. The exact quote, concrete demonstrations, explicit claim provenance, practical failure cases, and separate runnable practice/answers form the documentation contract. User solutions remain user-owned. Source and evidence freshness checks support independent review.
+
+Versioned recipes cover Cornell evidence notes, scalar configuration persistence, and embedded hysteresis load control. Preparation freezes parameters, independent coverage/oracles, expected results, and tolerances in the design/check contracts. Reviews bind these snapshots; changing both an oracle and its instance hash cannot bypass the reviewed contract. The worker generates artifacts, and a separate check executor collects actual evidence. Unsupported tasks receive a scoped design and can later yield reviewed reusable procedures.
+
+## Capability boundaries
+
+Role contracts declare required tools, approved optional providers, and allowed core operations. The gateway installs applicable pinned CodeGraph, Context7, and Playwright providers into an isolated cache with integrity locks. Native restrictions are generated where supported; doctor distinguishes observed availability, configured capability, enforced restrictions, and instruction-only limits. A native permission refusal or required missing tool remains a persisted blocker.
+
+The Developer's [scoped file-edit operation](workspace.md) provides ordinary UTF-8 implementation changes through the same core. It requires current task ownership, native capability confirmation, reviewed scope, and an expected file hash; protected acceptance artifacts and Cornell ownership remain separate. Exact previous bytes and immutable completion history remain task-linked archive inputs. Interrupted partial writes block gates until an authorized unchanged operation is recovered.
 
 ## Failure and evidence boundaries
 
