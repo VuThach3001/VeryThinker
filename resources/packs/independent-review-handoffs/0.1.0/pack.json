@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "independent-review-handoffs",
+  "version": "0.1.0",
+  "description": "Independent review across worker handoffs",
+  "domains": [
+    "engineering-process"
+  ],
+  "technologies": [
+    "native-agents",
+    "traceability"
+  ],
+  "applicability": [
+    "Engineering workflows with resumable or reassigned native agents."
+  ],
+  "assumptions": [
+    "Actual invocation identities are accurately recorded.",
+    "A separate reviewer is available."
+  ],
+  "limitations": [
+    "Does not authenticate agent identity, establish review quality, or establish an ASPICE capability rating.",
+    "Provenance requires access to the private shared-library repository; anonymous readers cannot inspect these references."
+  ],
+  "provenance": [
+    "https://github.com/VuThach3001/VeryThinker/pull/1",
+    "https://github.com/VuThach3001/VeryThinker/blob/9fb628466dcb8b0521d1487ca80a77c57a5292a4/src/engineering.ts"
+  ],
+  "dependencies": []
+}

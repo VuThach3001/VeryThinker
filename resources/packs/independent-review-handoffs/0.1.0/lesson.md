@@ -1,0 +1,3 @@
+# Independent review across worker handoffs
+
+When an engineering assignment is repaired or handed to another worker, preserve every implementation invocation associated with that assignment. Exclude both current and former implementers from its independent acceptance review. Bind the review to current requirements, source, verification evidence, and documentation; a new worker identity alone does not make the earlier implementer independent. Recorded owner and invocation IDs establish traceable process assertions, not authenticated runtime isolation. Invalidate affected evidence and review when assignment or requirement baselines change.
