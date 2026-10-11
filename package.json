@@ -1,0 +1,59 @@
+{
+  "name": "verythinker",
+  "version": "0.1.0-alpha.2",
+  "description": "Portable engineering workflows, traceability, and project knowledge for native AI agents.",
+  "type": "module",
+  "bin": {
+    "verythinker": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "resources",
+    "docs",
+    "examples",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.0.0 <25 || >=26.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check": "npm test",
+    "prepack": "npm run build",
+    "evaluate": "node scripts/evaluate.mjs",
+    "package:smoke": "node scripts/package-smoke.mjs"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VuThach3001/VeryThinker.git"
+  },
+  "keywords": [
+    "agents",
+    "skills",
+    "mcp",
+    "traceability",
+    "embedded",
+    "v-model"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "jsonc-parser": "3.3.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2"
+  }
+}

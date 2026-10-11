@@ -1,0 +1,9 @@
+node_modules/
+**/__pycache__/
+dist/
+artifacts/
+*.tgz
+.verythinker/cache/
+.verythinker/runs/
+.verythinker/contributions/
+*.verythinker-update

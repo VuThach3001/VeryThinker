@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-11T05:46:07.577Z",
+  "revision": "ba3b590573244fadae96072b2bcf5c42ddd0f493",
+  "baseline": "Exact source hashes identify the tested working tree, including uncommitted files.",
+  "redactions": [
+    "Local machine paths are replaced with tool/project/temporary-directory placeholders."
+  ],
+  "runtime": {
+    "node": "v24.18.0",
+    "platform": "win32",
+    "architecture": "x64"
+  },
+  "source_hashes": {
+    "examples/.npmignore": "1681327d85ac42aa5ed3eb61cc6946b04dd80454bb9e22431fe62a3a91ec66ef",
+    "examples/embedded/controller.c": "1d26f4a763d6ab262b54664436171bba8be5f9d106e55555b382c911aa962b8c",
+    "examples/embedded/controller.h": "013e07e7613947586b6da624cf865631cddcbffddb019def6b7d3b3bcd238579",
+    "examples/embedded/firmware-test.c": "4281b317b9cb693eb2971959a3b579b1bd785ee612e0a13e5c52cff36816297c",
+    "examples/embedded/load-switch.cir": "5f82d64152f286143af782cbbfa08fa9dc66ef2f89b54cd2b5024ab931829db8",
+    "examples/embedded/README.md": "2ef1c5050593e0e222dc033d5a6471ef09952da171779420c9ec6eae193f2a89",
+    "examples/embedded/run-firmware.mjs": "83e4dd8ebdfab439e1f1be493e17e510065a4950f5edcd8666462a7a56262d59",
+    "examples/embedded/run-ngspice.py": "1421aca2840a9bdacdcbf9ad8401ab48f871673fa01b55fea2bf8abaa774e290",
+    "examples/embedded/simulation.mjs": "517c5f115ac3e10a71144352df79af754f4074fc6dde6c8b0afa97efd54e4cf5",
+    "examples/embedded/tests/controller.test.mjs": "5ba59a72a1bcaa28395e3a63c05b5911c42db37a767b7d6dba51fade264fce76",
+    "examples/native-codex-runner.mjs": "1f6f426818b85d4ef4c6730908b1056fda21f7407cb6876e83c85a2758f36219",
+    "examples/native-model-probes.json": "cc71ee70007ca1308d369c0f7d3cf6e171079f312d5d6a87171ff1b1183d354a",
+    "examples/README.md": "9e9e5c07f596e022385e323bdf79980ee7a237fc2ff0dc62647a54299efe566f",
+    "examples/software/cli.mjs": "ceb7bc2074f68312438b3cbbaaf78ec04932b23a9f96a94a95a4f4735bae80a3",
+    "examples/software/config.mjs": "816a20d9a946c1ab582304aa983d876a4a81d3ca44d33a5bb185673113959c66",
+    "examples/software/README.md": "b07ad846e188e011de17b0b3c591f2f83765dfaace9acd1bbe7eb571d845731a",
+    "examples/software/tests/config.test.mjs": "6233669a404dbdcfe48aed7121af896503637af218493fc55449f312b4ba9e51",
+    "examples/verify.mjs": "74987ecf323aa74e7d6a434bec46c3b02fbde579822f4c03f2cad7c16c9e8f23",
+    "examples/workflow.mjs": "c8b06e1744904151aed90ebd0e1561872f6191d4baf624317174e48bba928e1f",
+    "test/pilots.test.mjs": "607296bea3db79f4b8dfda247901c027d67dc992f2bbc645677f5f1827d1875a",
+    "scripts/evaluate.mjs": "0e945315954ea8d0eb5f86025a2d8a89a7ed20898f92e867b7306eddd4e79390",
+    "src/adapters.ts": "4d3e534a311411b348e5ad5687834d7049bbf56e59deb3d80918af4c9cc9734e",
+    "src/cli.ts": "b349b76d2fd7430d4746c26f369ed2d674daa5047ad79cc8e66eb528953344b4",
+    "src/contributions.ts": "4122c28ff7f4b7e538b44d37648c3f00d0dd6df9d050b32c38b490c25ea4332b",
+    "src/engineering.ts": "864a7492ab2fc934ffabd7dfd7526d8bce272ce1528dd9b8eb89dd779156dab7",
+    "src/index.ts": "db3f8644634910ab4b33463c903bc7dda9f7d7be21c53e4bb71eac3d7336950f",
+    "src/indexing.ts": "90b2f3f7598f87d0cdb27773691d7cbf7adad4d60d0f493bfc48373e86d1facf",
+    "src/installer.ts": "3efedfe5026b46b27c320efa10b486b5d1ef4581ec504b4efcd8781cbd57df6a",
+    "src/manager.ts": "c2a023c709422421a07d6ffe40bff9bd5c585f206b7dbbc6e1da6f9c3e7db408",
+    "src/mcp.ts": "f9f25da401051c316d2c9ecc81b300c0c685009f89606919e9e0bcb2de15bfda",
+    "src/packs.ts": "e1bd281d0e14893c96d4d95664414d0400efee44bf667e5625d8b117f51d21ad",
+    "src/storage.ts": "80dc4ac271ed70823dde8664f7aa0bd2215733d4583a44dcb103264334a81363",
+    "src/types.ts": "14e302c4406f29c51f32f4fd9add9e360dbe7b113628c2baed9cd04c650f04d1",
+    "resources/guides/manager.md": "5260191554f7560a2e780d8382ac903b6b56639540658bdfdbabba41603bb3ef",
+    "resources/guides/process.md": "94ab1a3b8ff1da48ea2660d1ede7290d155f3aa807f58da42b66576c82d2c9b7",
+    "resources/guides/workflow.md": "fc674d29dd2d80a1a5ea1a6cd1102bd0c4918c60c3bc57a07758fc24f689b005",
+    "resources/packs/engineering-basics/pack.json": "85f220afa3cdc380931d57d9200d9f6f2dcefee262c47c881e8b6ce07f1ed121",
+    "resources/packs/engineering-basics/README.md": "72fb3985465fe553611981550404769ccf365e9b27a32f9b8dd01f1c45e043cf",
+    "resources/roles/architect.md": "2c3b6eb7a7a8cbc3ef3c77bdc1cea2d34e006f5fe06640ea126807efdd2eab06",
+    "resources/roles/component-owner.md": "8c1c4d3a522e825e1bbcdaeb5c661c7719f94c98ca90944e79ae2e05b28672d9",
+    "resources/roles/curator.md": "24c3f80ee51492a119a918310ef0161adc13b85bbc0086068b270e516ba4ac6d",
+    "resources/roles/developer.md": "2b238e992abc7a244c0e125c4ce9cdb9499dbf2fc0b2326b66d6a718b0b5e072",
+    "resources/roles/manager.md": "523f309a6df124851bc347f311130e5e50f5605ca4940af32b2ab5ee4cd5e76f",
+    "resources/roles/release.md": "7f11dd3edd02d2d135f3bbbc2242aec410bd613d0e0f43ea6e79552a60f03a55",
+    "resources/roles/requirements.md": "f4a17c68e22e444abe292b3a88c14ac85edb463e144c60eb3b5b94aebf197766",
+    "resources/roles/researcher.md": "967f782028417530bf432fbc994ae02d80ee51fcfffbfa370827ed95e8bf7736",
+    "resources/roles/reviewer.md": "50a9525148a3f178d02383251420af8ea20be61ae7e1b7fec217e74eb6494434",
+    "resources/roles/verifier.md": "3ba950625ed12379dc22fac6d04cf90d98f22a73104a3a0b51e295c9038da868",
+    "resources/skills/verythinker-design/SKILL.md": "c3d2ec708acfdf8607b6f8e3232c0a6f1acc925e6047bfebd1cb206ca9b5170a",
+    "resources/skills/verythinker-finish/SKILL.md": "bbbc15f7867c1b90dda48dcc955279771ae38ecdbdbca62306c270495ba59703",
+    "resources/skills/verythinker-implement/SKILL.md": "e27fbb6107fdd641e3e65fd0eb88649e176fc15095a9a374995d07f5d208be9a",
+    "resources/skills/verythinker-manager/SKILL.md": "76a219beb138076d3f3e72a7c5185d87483cda9f2351b09fdd092c12a4e50d94",
+    "resources/skills/verythinker-requirements/SKILL.md": "723110ecdc0fe2affb7806a9c4e3d1c5e338f65e8fe9512b5af8c915ba0bb9ca",
+    "resources/skills/verythinker-research/SKILL.md": "dab4b1eea66135069fb7f92c9a3ea6663686dbeb93d9d04bb05fbb8febb88522",
+    "resources/skills/verythinker-verify/SKILL.md": "2bef8eb25888c1438a027d3d8e7252b91caec57fcbac378911397db49d6d7dee",
+    "resources/templates/change.md": "92a09ec7686decda59a73aef814c3a54da348e509e74a267269ffdb06026c879",
+    "resources/templates/check.md": "7427e2581ae92acfc17780914cbaed7d41b45fcd6800478ec98ae35233e9d90a",
+    "resources/templates/design.md": "0fbd2791c9f0973c836e8ff3c74a19358e894902ba8a22fddbdac4af93f0bd03",
+    "resources/templates/evidence.md": "ca9f0d0a3da86668b00a0e5e40101f677329f56fc4dd1dd60b33bee44518fe3e",
+    "resources/templates/knowledge.md": "d5a4aa57bc60fea40913ec2ba596d3768b6fcbe35b82bb82a6fbf8d2ff02c5d9",
+    "resources/templates/problem.md": "fe113f585380146c26d4bc4a4fba3da7aff0f1fde0da754b78b1aa7cb4d563b8",
+    "resources/templates/requirement.md": "45447c5fcb1a8839fbce2b534aa6af9cdcde4db32d3afc53827d56e1b6e964b3",
+    "resources/templates/review.md": "2ebc6ae74bf3cbd8283d55811e46358be7faa9f82b0c8073f48a9fa8d1ca0d86",
+    "resources/templates/task.md": "db2a708e2e6ffa21e399e2e2582692512eca382c55a4836de58184ce18e2d615",
+    "resources/templates/work-record.md": "548e9a2a3e05b15418c313ed7b3086b2db7fc1f0691b5d907736180be6092759",
+    "package.json": "5112306eaa60b298d5ae4839806a6cc7faf0719d6a2896df42606f5fde527095",
+    "package-lock.json": "2c80ef649a37d3408632fd95fad0b0e8c853010d8696d37ade0c41e836e49a7f"
+  },
+  "results": [
+    {
+      "check_ids": [
+        "SW-CHECK-001",
+        "SW-CHECK-002",
+        "SW-CHECK-003",
+        "EM-CHECK-001",
+        "EM-CHECK-002",
+        "EM-CHECK-003",
+        "EM-CHECK-004"
+      ],
+      "status": "passed",
+      "method": "behavioral-and-file-integration-tests",
+      "command": [
+        "<node>",
+        "--test",
+        "test/pilots.test.mjs"
+      ],
+      "exit_code": 0,
+      "stdout": "✔ SW-CHECK-001: valid boundaries and invalid inputs (6.8953ms)\n✔ SW-CHECK-002: persistent configuration survives a new reader; invalid writes preserve it (103.091ms)\n✔ SW-CHECK-003: CLI acceptance in separate processes (764.8001ms)\n✔ EM-CHECK-001: hysteresis, startup, and threshold inclusivity (1.8989ms)\n✔ EM-CHECK-002: fail-off behavior and recovery (0.8051ms)\n✔ EM-CHECK-003: calibration and exhaustive ADC-domain behavior (19.5407ms)\n✔ EM-CHECK-004: circuit operating-point bounds and fault integration (0.6664ms)\n✔ evaluation matrix contains 18 planned trials without observed results (369.1587ms)\n✔ evaluation reports missing observations instead of zeros and rejects inconsistent imports (364.8037ms)\n✔ evaluation executes protected checks and rejects a runner that edits them (2101.632ms)\n✔ software workflow records actual checks, resumes, and requires explicit independent reviews (15529.1222ms)\n✔ embedded workflow records actual checks, resumes, and requires explicit independent reviews (11820.0078ms)\nℹ tests 12\nℹ suites 0\nℹ pass 12\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 31356.6767\n",
+      "stderr": "",
+      "error": null
+    },
+    {
+      "check_id": "EM-CHECK-005",
+      "status": "passed",
+      "method": "spice-simulation",
+      "command": [
+        "D:/ESP-IDF/Espressif/tools/idf-python/3.11.2/python.exe",
+        "examples/embedded/run-ngspice.py",
+        "--library",
+        "<ngspice-library>"
+      ],
+      "exit_code": 0,
+      "stdout": "{\r\n  \"check_id\": \"EM-CHECK-005\",\r\n  \"status\": \"passed\",\r\n  \"method\": \"spice-simulation\",\r\n  \"library\": \"<ngspice-library>\",\r\n  \"library_sha256\": \"3238d82f02b6d08d8703a28ea894bcfdf59906dd4a59ad2e93eeec532a0454a3\",\r\n  \"netlist_sha256\": \"5f82d64152f286143af782cbbfa08fa9dc66ef2f89b54cd2b5024ab931829db8\",\r\n  \"version_log\": [\r\n    \"stderr Warning: can't find the initialization file spinit.\",\r\n    \"stdout ******\",\r\n    \"stdout ** ngspice-46 shared library\",\r\n    \"stdout ** Creation Date: Apr 14 2026   05:15:29\",\r\n    \"stdout ******\",\r\n    \"stdout ******\",\r\n    \"stdout ** ngspice-46 : Circuit level simulation program\",\r\n    \"stdout ** Compiled with KLU Direct Linear Solver\",\r\n    \"stdout ** The U. C. Berkeley CAD Group\",\r\n    \"stdout ** Copyright 1985-1994, Regents of the University of California.\",\r\n    \"stdout ** Copyright 2001-2025, The ngspice team.\",\r\n    \"stdout ** Please get your ngspice manual from https://ngspice.sourceforge.io/docs.html\",\r\n    \"stdout ** Please file your bug-reports at https://ngspice.sourceforge.io/bugrep.html\",\r\n    \"stdout ** Creation Date: Apr 14 2026   05:15:29\",\r\n    \"stdout ******\"\r\n  ],\r\n  \"operating_points\": [\r\n    {\r\n      \"state\": \"on\",\r\n      \"current_a\": 0.09995835068721366,\r\n      \"drain_v\": 0.0049979175343606835\r\n    },\r\n    {\r\n      \"state\": \"off\",\r\n      \"current_a\": 1.1999998550393798e-08,\r\n      \"drain_v\": 11.999998560000174\r\n    }\r\n  ],\r\n  \"log\": [\r\n    \"stderr Warning: can't find the initialization file spinit.\",\r\n    \"stdout ******\",\r\n    \"stdout ** ngspice-46 shared library\",\r\n    \"stdout ** Creation Date: Apr 14 2026   05:15:29\",\r\n    \"stdout ******\",\r\n    \"stdout ******\",\r\n    \"stdout ** ngspice-46 : Circuit level simulation program\",\r\n    \"stdout ** Compiled with KLU Direct Linear Solver\",\r\n    \"stdout ** The U. C. Berkeley CAD Group\",\r\n    \"stdout ** Copyright 1985-1994, Regents of the University of California.\",\r\n    \"stdout ** Copyright 2001-2025, The ngspice team.\",\r\n    \"stdout ** Please get your ngspice manual from https://ngspice.sourceforge.io/docs.html\",\r\n    \"stdout ** Please file your bug-reports at https://ngspice.sourceforge.io/bugrep.html\",\r\n    \"stdout ** Creation Date: Apr 14 2026   05:15:29\",\r\n    \"stdout ******\",\r\n    \"stdout Note: No compatibility mode selected!\",\r\n    \"stdout Circuit: verythinker resistive load switch operating-point pilot\",\r\n    \"stdout Doing analysis at TEMP = 27.000000 and TNOM = 27.000000\",\r\n    \"stdout Using SPARSE 1.3 as Direct Linear Solver\",\r\n    \"stdout No. of Data Rows : 1\",\r\n    \"stdout Doing analysis at TEMP = 27.000000 and TNOM = 27.000000\",\r\n    \"stdout Using SPARSE 1.3 as Direct Linear Solver\",\r\n    \"stdout No. of Data Rows : 1\"\r\n  ],\r\n  \"limitations\": [\r\n    \"Ideal switch and nominal resistive load only.\",\r\n    \"No physical hardware or transient validation.\"\r\n  ]\r\n}\r\n",
+      "stderr": "",
+      "error": null,
+      "result": {
+        "check_id": "EM-CHECK-005",
+        "status": "passed",
+        "method": "spice-simulation",
+        "library": "<ngspice-library>",
+        "library_sha256": "3238d82f02b6d08d8703a28ea894bcfdf59906dd4a59ad2e93eeec532a0454a3",
+        "netlist_sha256": "5f82d64152f286143af782cbbfa08fa9dc66ef2f89b54cd2b5024ab931829db8",
+        "version_log": [
+          "stderr Warning: can't find the initialization file spinit.",
+          "stdout ******",
+          "stdout ** ngspice-46 shared library",
+          "stdout ** Creation Date: Apr 14 2026   05:15:29",
+          "stdout ******",
+          "stdout ******",
+          "stdout ** ngspice-46 : Circuit level simulation program",
+          "stdout ** Compiled with KLU Direct Linear Solver",
+          "stdout ** The U. C. Berkeley CAD Group",
+          "stdout ** Copyright 1985-1994, Regents of the University of California.",
+          "stdout ** Copyright 2001-2025, The ngspice team.",
+          "stdout ** Please get your ngspice manual from https://ngspice.sourceforge.io/docs.html",
+          "stdout ** Please file your bug-reports at https://ngspice.sourceforge.io/bugrep.html",
+          "stdout ** Creation Date: Apr 14 2026   05:15:29",
+          "stdout ******"
+        ],
+        "operating_points": [
+          {
+            "state": "on",
+            "current_a": 0.09995835068721366,
+            "drain_v": 0.0049979175343606835
+          },
+          {
+            "state": "off",
+            "current_a": 1.1999998550393798e-8,
+            "drain_v": 11.999998560000174
+          }
+        ],
+        "log": [
+          "stderr Warning: can't find the initialization file spinit.",
+          "stdout ******",
+          "stdout ** ngspice-46 shared library",
+          "stdout ** Creation Date: Apr 14 2026   05:15:29",
+          "stdout ******",
+          "stdout ******",
+          "stdout ** ngspice-46 : Circuit level simulation program",
+          "stdout ** Compiled with KLU Direct Linear Solver",
+          "stdout ** The U. C. Berkeley CAD Group",
+          "stdout ** Copyright 1985-1994, Regents of the University of California.",
+          "stdout ** Copyright 2001-2025, The ngspice team.",
+          "stdout ** Please get your ngspice manual from https://ngspice.sourceforge.io/docs.html",
+          "stdout ** Please file your bug-reports at https://ngspice.sourceforge.io/bugrep.html",
+          "stdout ** Creation Date: Apr 14 2026   05:15:29",
+          "stdout ******",
+          "stdout Note: No compatibility mode selected!",
+          "stdout Circuit: verythinker resistive load switch operating-point pilot",
+          "stdout Doing analysis at TEMP = 27.000000 and TNOM = 27.000000",
+          "stdout Using SPARSE 1.3 as Direct Linear Solver",
+          "stdout No. of Data Rows : 1",
+          "stdout Doing analysis at TEMP = 27.000000 and TNOM = 27.000000",
+          "stdout Using SPARSE 1.3 as Direct Linear Solver",
+          "stdout No. of Data Rows : 1"
+        ],
+        "limitations": [
+          "Ideal switch and nominal resistive load only.",
+          "No physical hardware or transient validation."
+        ]
+      }
+    },
+    {
+      "check_id": "EM-CHECK-006",
+      "status": "passed",
+      "method": "cross-compilation",
+      "command": [
+        "<compiler>",
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-ffreestanding",
+        "-c",
+        "examples/embedded/controller.c",
+        "-o",
+        "<temporary-directory>\\verythinker-firmware-D8YPp6\\controller.o"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "error": null,
+      "compiler_version": "riscv32-esp-elf-gcc.exe (crosstool-NG esp-14.2.0_20241119) 14.2.0\r\nCopyright (C) 2024 Free Software Foundation, Inc.\r\nThis is free software; see the source for copying conditions.  There is NO\r\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\r\n\r\n",
+      "object_sha256": "aab1d70079d9cd6c7ff2c8e57b4744a9e6c3c7041a6804e3409ae3da848d24d8",
+      "limitations": [
+        "Compilation only; the C controller was not executed on target hardware."
+      ]
+    },
+    {
+      "check_id": "EM-CHECK-007",
+      "status": "passed",
+      "method": "native-host-firmware-execution-and-model-comparison",
+      "command": [
+        "<node>",
+        "examples/embedded/run-firmware.mjs",
+        "--compiler",
+        "<host-compiler>"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"schema_version\": 1,\n  \"check_id\": \"EM-CHECK-007\",\n  \"recorded_at\": \"2026-10-11T05:46:07.515Z\",\n  \"status\": \"passed\",\n  \"method\": \"native-host-firmware-execution-and-model-comparison\",\n  \"compiler\": {\n    \"family\": \"dmc\",\n    \"version\": \"Digital Mars Compiler Version 8.42n\",\n    \"arguments\": [\n      \"controller.c\",\n      \"firmware-test.c\",\n      \"-mn\",\n      \"-wx\",\n      \"-ofirmware-test.exe\"\n    ]\n  },\n  \"runtime\": {\n    \"platform\": \"win32\",\n    \"architecture\": \"x64\"\n  },\n  \"source_hashes\": {\n    \"controller.c\": \"1d26f4a763d6ab262b54664436171bba8be5f9d106e55555b382c911aa962b8c\",\n    \"controller.h\": \"013e07e7613947586b6da624cf865631cddcbffddb019def6b7d3b3bcd238579\",\n    \"firmware-test.c\": \"4281b317b9cb693eb2971959a3b579b1bd785ee612e0a13e5c52cff36816297c\",\n    \"simulation.mjs\": \"517c5f115ac3e10a71144352df79af754f4074fc6dde6c8b0afa97efd54e4cf5\"\n  },\n  \"executable_sha256\": \"deaf94224bc44131e420ed9810daf3e82461072a7f7a55018292c0bb21d948c1\",\n  \"results_sha256\": \"b4bf288d584d2c8632308c96d341ad467cad6b332b0c744b541609d0e25067f5\",\n  \"comparisons\": {\n    \"exhaustive\": 8192,\n    \"boundary\": 14,\n    \"sequence\": 9\n  },\n  \"total_comparisons\": 8215,\n  \"limitations\": [\n    \"C ran on a native host, not on an MCU or physical board.\",\n    \"Exhaustive comparison covers ADC and prior-state combinations for the default calibration; alternate calibration and fault cases are representative.\",\n    \"The independent requirement tests validate the JavaScript model; matching implementations can still share a specification error.\",\n    \"Timing, ADC electronics, GPIO behavior, and hardware safety remain outside this check.\"\n  ]\n}\n",
+      "stderr": "",
+      "error": null,
+      "result": {
+        "schema_version": 1,
+        "check_id": "EM-CHECK-007",
+        "recorded_at": "2026-10-11T05:46:07.515Z",
+        "status": "passed",
+        "method": "native-host-firmware-execution-and-model-comparison",
+        "compiler": {
+          "family": "dmc",
+          "version": "Digital Mars Compiler Version 8.42n",
+          "arguments": [
+            "controller.c",
+            "firmware-test.c",
+            "-mn",
+            "-wx",
+            "-ofirmware-test.exe"
+          ]
+        },
+        "runtime": {
+          "platform": "win32",
+          "architecture": "x64"
+        },
+        "source_hashes": {
+          "controller.c": "1d26f4a763d6ab262b54664436171bba8be5f9d106e55555b382c911aa962b8c",
+          "controller.h": "013e07e7613947586b6da624cf865631cddcbffddb019def6b7d3b3bcd238579",
+          "firmware-test.c": "4281b317b9cb693eb2971959a3b579b1bd785ee612e0a13e5c52cff36816297c",
+          "simulation.mjs": "517c5f115ac3e10a71144352df79af754f4074fc6dde6c8b0afa97efd54e4cf5"
+        },
+        "executable_sha256": "deaf94224bc44131e420ed9810daf3e82461072a7f7a55018292c0bb21d948c1",
+        "results_sha256": "b4bf288d584d2c8632308c96d341ad467cad6b332b0c744b541609d0e25067f5",
+        "comparisons": {
+          "exhaustive": 8192,
+          "boundary": 14,
+          "sequence": 9
+        },
+        "total_comparisons": 8215,
+        "limitations": [
+          "C ran on a native host, not on an MCU or physical board.",
+          "Exhaustive comparison covers ADC and prior-state combinations for the default calibration; alternate calibration and fault cases are representative.",
+          "The independent requirement tests validate the JavaScript model; matching implementations can still share a specification error.",
+          "Timing, ADC electronics, GPIO behavior, and hardware safety remain outside this check."
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "No physical hardware, board, HIL, thermal, EMC, timing, or power-loss validation.",
+    "Automated pilot verification is not an LLM agent benchmark."
+  ]
+}

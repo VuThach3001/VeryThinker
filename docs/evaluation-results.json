@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-10-11",
+  "status": "blocked-native-execution",
+  "planned_trials": 18,
+  "recorded_trials": 1,
+  "unrecorded_trials": 17,
+  "environment": { "platform": "Windows", "node": "24.18.0", "native_client": "codex-cli 0.153.4" },
+  "model_availability": [
+    { "requested": "gpt-6.1-sol", "confirmed": null, "exit_code": 1, "response_status": 400,
+      "observation": "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account." },
+    { "requested": "gpt-6-luna", "confirmed": null, "exit_code": 1, "response_status": 400,
+      "observation": "The 'gpt-6-luna' model is not supported when using Codex with a ChatGPT account." },
+    { "requested": "configured default: gpt-6-astra", "confirmed": null, "exit_code": 0,
+      "observation": "Read-only availability probe returned available; model configuration identifies the default, while CLI events did not confirm the backend ID.",
+      "native_usage": { "input_tokens": 23362, "cached_input_tokens": 0, "cache_write_input_tokens": 0,
+        "output_tokens": 5, "reasoning_output_tokens": 0 } }
+  ],
+  "trials": [
+    {
+      "trial_id": "software/strong-single/1",
+      "configuration": "strong-single",
+      "pilot": "software",
+      "requested_model": "gpt-6-astra",
+      "confirmed_model": null,
+      "status": "failed",
+      "failure_class": "native-environment-policy",
+      "elapsed_ms": 25283.711,
+      "protected_files_unchanged": true,
+      "acceptance_test_exit_code": 1,
+      "independent_review_performed": false,
+      "observed_commands_rejected": ["Get-Content task-packet.json", "Get-Content -LiteralPath task-packet.json"],
+      "observed_rejection": "rejected: blocked by policy",
+      "agent_report": "Implementation was blocked by environment policy. No files were changed.",
+      "native_usage": { "input_tokens": 81176, "cached_input_tokens": 66944, "cache_write_input_tokens": 0,
+        "output_tokens": 264, "reasoning_output_tokens": 19 },
+      "metrics": { "retries": null, "escalations": null, "escaped_defects": null,
+        "human_correction_minutes": null, "cost_amount": null, "cost_currency": null, "quota_consumed": null },
+      "baseline": { "requirements_sha256": "b07ad846e188e011de17b0b3c591f2f83765dfaace9acd1bbe7eb571d845731a",
+        "tests_sha256": "6233669a404dbdcfe48aed7121af896503637af218493fc55449f312b4ba9e51" },
+      "local_artifact_reference": "artifacts/evaluation/trials.jsonl and its referenced workspace logs"
+    }
+  ],
+  "remediation": [
+    "Verify native client/account support for the selected model IDs before assigning tiers.",
+    "Verify the native client's permitted read/write/check operations in an isolated project with the user's intended permissions.",
+    "Do not disable execpolicy or expand sandbox permissions to work around a policy rejection.",
+    "Once native execution is permitted, rerun a bounded trial with real review and preserved tests before executing the rest of the matrix.",
+    "Use a native subagent wrapper that proves worker/model routing before comparing multi-agent configurations."
+  ],
+  "limitations": [
+    "This environment failure does not measure the model's ability to implement the pilot.",
+    "No routing optimization, completed 18-trial comparison, monetary cost, or account quota charge has been established.",
+    "Raw local machine paths and user configuration content are excluded from this public summary.",
+    "Automated pilot, SPICE, and compilation results are separate evidence in examples/verification.json."
+  ]
+}

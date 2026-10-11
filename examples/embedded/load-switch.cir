@@ -1,0 +1,9 @@
+VeryThinker resistive load switch operating-point pilot
+* Ideal voltage-controlled switch; not a selected MOSFET or a board validation.
+VSUPPLY supply 0 DC 12
+VCONTROL control 0 DC 3.3
+RLOAD supply drain 120
+SLOAD drain 0 control 0 LOADSWITCH
+.model LOADSWITCH SW(Ron=0.05 Roff=1e9 Vt=1.65 Vh=0.1)
+.op
+.end

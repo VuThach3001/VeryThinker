@@ -1,0 +1,354 @@
+{
+  "schema_version": 1,
+  "package": "@colbymchenry/codegraph",
+  "version": "1.6.2",
+  "tested_at": "2026-10-11T03:10:12.592Z",
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "os_release": "10.0.26200",
+    "host_node": "v24.18.0",
+    "bundled_node": "v24.16.0"
+  },
+  "status": "supported-for-fixture",
+  "enabled": false,
+  "checks": [
+    {
+      "id": "version",
+      "status": "passed",
+      "detail": "Observed 1.6.2"
+    },
+    {
+      "id": "windows",
+      "status": "passed",
+      "detail": "win32/x64"
+    },
+    {
+      "id": "c-symbol",
+      "status": "passed",
+      "detail": "C definition from sensor.c"
+    },
+    {
+      "id": "cpp-symbol",
+      "status": "passed",
+      "detail": "C++ definition from controller.cpp"
+    },
+    {
+      "id": "cross-file-caller",
+      "status": "passed",
+      "detail": "C++ Controller.sample calls C sensor_read across files"
+    },
+    {
+      "id": "modify-sync",
+      "status": "passed",
+      "detail": "Renamed definition replaces its previous indexed name"
+    },
+    {
+      "id": "add-sync",
+      "status": "passed",
+      "detail": "Added C file indexed after explicit sync"
+    },
+    {
+      "id": "delete-sync",
+      "status": "passed",
+      "detail": "Deleted C file removed after explicit sync"
+    },
+    {
+      "id": "mcp-tool",
+      "status": "passed",
+      "detail": "MCP codegraph_explore discovered through initialize and tools/list"
+    },
+    {
+      "id": "reconnect-freshness",
+      "status": "passed",
+      "detail": "Source edited while server was absent is reflected after MCP connection"
+    },
+    {
+      "id": "watch-add",
+      "status": "passed",
+      "detail": "Added C file is returned through the live MCP server without explicit sync"
+    },
+    {
+      "id": "watch-modify",
+      "status": "passed",
+      "detail": "Renamed symbol and changed body become warning-free; indexed name changes without explicit sync"
+    }
+  ],
+  "commands": [
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "version"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 307,
+      "stdout": "1.6.2\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "init",
+        "<temporary-sandbox>\\fixture"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 2244,
+      "stdout": "T  Initializing CodeGraph\n|\n*  Initialized in <temporary-sandbox>\\fixture\n|\nScanning files...\nParsing code...\nResolving refs...\nLinking dynamic dispatch...\n|\n*  Indexed 3 files\n|\n•  9 nodes, 10 edges in 848ms\n|\n—  Done\n\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "query",
+        "sensor_read",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 529,
+      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:380d3e07be87eda6849bf286112d0658\",\n      \"kind\": \"function\",\n      \"name\": \"sensor_read\",\n      \"qualifiedName\": \"sensor_read\",\n      \"filePath\": \"sensor.c\",\n      \"language\": \"c\",\n      \"startLine\": 2,\n      \"endLine\": 2,\n      \"startColumn\": 0,\n      \"endColumn\": 36,\n      \"visibility\": null,\n      \"isExported\": false,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1791688214473\n    },\n    \"score\": 106.65388962260995\n  }\n]\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "query",
+        "control_step",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 488,
+      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:629c4bf06e4edc0f520d59da70dc8aa9\",\n      \"kind\": \"function\",\n      \"name\": \"control_step\",\n      \"qualifiedName\": \"control_step\",\n      \"filePath\": \"controller.cpp\",\n      \"language\": \"cpp\",\n      \"startLine\": 5,\n      \"endLine\": 5,\n      \"startColumn\": 0,\n      \"endColumn\": 73,\n      \"visibility\": null,\n      \"isExported\": false,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1791688214465\n    },\n    \"score\": 106.65388962260995\n  }\n]\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "callers",
+        "sensor_read",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 487,
+      "stdout": "{\n  \"symbol\": \"sensor_read\",\n  \"targets\": [\n    {\n      \"name\": \"sensor_read\",\n      \"kind\": \"function\",\n      \"filePath\": \"sensor.c\",\n      \"startLine\": 2,\n      \"id\": \"function:380d3e07be87eda6849bf286112d0658\",\n      \"qualifiedName\": \"sensor_read\",\n      \"language\": \"c\"\n    }\n  ],\n  \"ambiguous\": false,\n  \"aggregation\": \"definition\",\n  \"filteredOut\": false,\n  \"definitions\": [\n    {\n      \"definition\": {\n        \"name\": \"sensor_read\",\n        \"kind\": \"function\",\n        \"filePath\": \"sensor.c\",\n        \"startLine\": 2,\n        \"id\": \"function:380d3e07be87eda6849bf286112d0658\",\n        \"qualifiedName\": \"sensor_read\",\n        \"language\": \"c\"\n      },\n      \"roots\": [\n        \"function:380d3e07be87eda6849bf286112d0658\"\n      ],\n      \"callers\": [\n        {\n          \"id\": \"method:a96adf48ef6b7cbfcdf90235c3c65e8e\",\n          \"name\": \"sample\",\n          \"kind\": \"method\",\n          \"filePath\": \"controller.cpp\",\n          \"startLine\": 4,\n          \"relationships\": [\n            \"calls\"\n          ]\n        }\n      ],\n      \"edges\": [\n        {\n          \"source\": \"method:a96adf48ef6b7cbfcdf90235c3c65e8e\",\n          \"target\": \"function:380d3e07be87eda6849bf286112d0658\",\n          \"kind\": \"calls\",\n          \"metadata\": {\n            \"confidence\": 0.5,\n            \"resolvedBy\": \"exact-match\",\n            \"refName\": \"sensor_read\"\n          },\n          \"line\": 4,\n          \"column\": 49,\n          \"provenance\": null\n        }\n      ],\n      \"total\": 1,\n      \"limit\": 20,\n      \"truncated\": false\n    }\n  ],\n  \"callers\": [\n    {\n      \"name\": \"sample\",\n      \"kind\": \"method\",\n      \"filePath\": \"controller.cpp\",\n      \"startLine\": 4,\n      \"relationships\": [\n        \"calls\"\n      ]\n    }\n  ],\n  \"total\": 1,\n  \"limit\": 20,\n  \"truncated\": false\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "sync",
+        "<temporary-sandbox>\\fixture"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 1455,
+      "stdout": "T  Syncing CodeGraph\n|\nScanning files...\nParsing code...\nResolving refs...\nLinking dynamic dispatch...\n|\n*  Synced 4 changed files\n|\n•  Added: 1, Modified: 3 - 11 nodes in 374ms\n|\n—  Done\n\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "query",
+        "sensor_read",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 464,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "query",
+        "sensor_measure",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 434,
+      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:db499d02beeef9580152e3ee96593fb2\",\n      \"kind\": \"function\",\n      \"name\": \"sensor_measure\",\n      \"qualifiedName\": \"sensor_measure\",\n      \"filePath\": \"sensor.c\",\n      \"language\": \"c\",\n      \"startLine\": 2,\n      \"endLine\": 2,\n      \"startColumn\": 0,\n      \"endColumn\": 39,\n      \"visibility\": null,\n      \"isExported\": false,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1791688217714\n    },\n    \"score\": 107.09842587654467\n  }\n]\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "query",
+        "sensor_guard",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 609,
+      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:66a58f2028a97a2bcc044a4e7bd2de4e\",\n      \"kind\": \"function\",\n      \"name\": \"sensor_guard\",\n      \"qualifiedName\": \"sensor_guard\",\n      \"filePath\": \"guard.c\",\n      \"language\": \"c\",\n      \"startLine\": 1,\n      \"endLine\": 1,\n      \"startColumn\": 0,\n      \"endColumn\": 36,\n      \"visibility\": null,\n      \"isExported\": false,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1791688217709\n    },\n    \"score\": 107.09842587654467\n  }\n]\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "sync",
+        "<temporary-sandbox>\\fixture"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 1207,
+      "stdout": "T  Syncing CodeGraph\n|\nScanning files...\n|\n*  Synced 1 changed files\n|\n•  Removed: 1 - 0 nodes in 163ms\n|\n—  Done\n\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "query",
+        "sensor_guard",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 462,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "serve",
+        "--mcp",
+        "--path",
+        "<temporary-sandbox>\\fixture"
+      ],
+      "purpose": "MCP direct mode, automatic watcher enabled"
+    },
+    {
+      "operation": "tools/call",
+      "tool": "codegraph_explore",
+      "query": "sensor_latest",
+      "result": "**Exploration: sensor_latest**\n\nFound 1 symbol across 1 file.\n\n**Blast radius — what depends on these (update/verify before editing)**\n\n- `sensor_latest` (sensor.c:2) — 1 caller in `controller.cpp`; no tests found within 3 caller hops\n\n**Source Code**\n\n> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.\n\n**`sensor.c`** — sensor_latest(function)\n\n```c\n1\t#include \"sensor.h\"\n2\tint sensor_latest(void) { return 42; }\n```\n\n**Not shown above — explore these names for their source**\n\n- controller.cpp: sample:4, Controller:4, control_step:5"
+    },
+    {
+      "operation": "tools/call",
+      "tool": "codegraph_explore",
+      "query": "watch_added",
+      "observed_stale_warning": false,
+      "result": "**Exploration: watch_added**\n\nFound 1 symbol across 1 file.\n\n**Source Code**\n\n> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.\n\n**`watch.c`** — watch_added(function)\n\n```c\n1\tint watch_added(void) { return 7; }\n```\n"
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "query",
+        "watch_updated",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 414,
+      "stdout": "[\n  {\n    \"node\": {\n      \"id\": \"function:5a6d9bd9349c9c5474d122f9c868f702\",\n      \"kind\": \"function\",\n      \"name\": \"watch_updated\",\n      \"qualifiedName\": \"watch_updated\",\n      \"filePath\": \"watch.c\",\n      \"language\": \"c\",\n      \"startLine\": 1,\n      \"endLine\": 1,\n      \"startColumn\": 0,\n      \"endColumn\": 38,\n      \"visibility\": null,\n      \"isExported\": false,\n      \"isAsync\": false,\n      \"isStatic\": false,\n      \"isAbstract\": false,\n      \"updatedAt\": 1791688225490\n    },\n    \"score\": 107.09842587654467\n  }\n]\n",
+      "stderr": ""
+    },
+    {
+      "command": "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\node.exe",
+      "args": [
+        "--liftoff-only",
+        "--disable-warning=ExperimentalWarning",
+        "<temporary-sandbox>\\node_modules\\@colbymchenry\\codegraph-win32-x64\\lib\\dist\\bin\\codegraph.js",
+        "query",
+        "watch_added",
+        "--path",
+        "<temporary-sandbox>\\fixture",
+        "--json"
+      ],
+      "status": 0,
+      "signal": null,
+      "timed_out": false,
+      "duration_ms": 456,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "operation": "tools/call",
+      "tool": "codegraph_explore",
+      "query": "watch_updated after symbol/body change",
+      "observed_stale_warning": true,
+      "result": "**Exploration: watch_updated**\n\nFound 1 symbol across 1 file.\n\n**Source Code**\n\n> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.\n\n**`watch.c`** — watch_updated(function)\n\n```c\n1\tint watch_updated(void) { return 19; }\n```\n"
+    }
+  ],
+  "limitations": [
+    "Results apply only to this small C/C++ fixture and recorded platform/package version.",
+    "A code graph assists code discovery; it does not establish engineering requirement traceability.",
+    "The runner does not change native agent configuration or enable the provider."
+  ],
+  "redactions": [
+    "Machine-specific temporary sandbox paths were replaced with <temporary-sandbox>; the report otherwise retains captured output and command structure."
+  ]
+}
