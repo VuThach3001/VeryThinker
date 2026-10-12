@@ -36,12 +36,30 @@ import {
 } from './archives.js';
 
 export interface WorkflowInput {
-  requirement?: string;
-  requirements?: string[];
+  requirement?: string | null;
+  requirements?: string[] | null;
   title?: string;
   invocation_id?: string;
   request_id?: string;
   change_type?: 'breaking' | 'breaking-change' | 'feature' | 'fix';
+}
+
+/** Strict tool clients may send explicit placeholders for every optional field. */
+export function normalizeWorkflowInput<T extends WorkflowInput>(input: T): T {
+  const normalized = { ...input };
+  for (const key of Object.keys(normalized) as (keyof T)[])
+    if (normalized[key] === null) delete normalized[key];
+  if (normalized.requirement !== undefined) {
+    if (typeof normalized.requirement !== 'string')
+      throw new Error('Requirement must be text or an unused null placeholder.');
+    if (!normalized.requirement.trim()) delete normalized.requirement;
+  }
+  if (normalized.requirements !== undefined) {
+    if (!Array.isArray(normalized.requirements))
+      throw new Error('Requirements must be an array or an unused null placeholder.');
+    if (!normalized.requirements.length) delete normalized.requirements;
+  }
+  return normalized;
 }
 
 export interface AutomationPolicy {
@@ -115,7 +133,9 @@ function workflow(root: string, id: string): ProjectRecord {
   return record;
 }
 export function beginWorkflow(root: string, input: WorkflowInput): ProjectRecord {
-  return withOperationLock(root, 'manager-intake', () => beginWorkflowClaimed(root, input));
+  return withOperationLock(root, 'manager-intake', () =>
+    beginWorkflowClaimed(root, normalizeWorkflowInput(input)),
+  );
 }
 function beginWorkflowClaimed(root: string, input: WorkflowInput): ProjectRecord {
   const policy = ensureAutomationPolicy(root);

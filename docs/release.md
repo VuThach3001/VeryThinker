@@ -1,6 +1,6 @@
 # Prerelease and stable release criteria
 
-The package version is `0.1.0-alpha.3`. Build and distribute a local tarball while recorded native conformance and agent evaluation remain release evidence requirements. Exact routing, private project history, Cornell documentation, protected recipes, and applicable tools are implemented; this document does not claim registry publication or complete native-account verification.
+The package version is `0.1.0-alpha.3.1`. This intake hotfix accepts unused nullable/empty fields from strict clients; it preserves alpha.3 routing and engineering gates. Build and distribute a local tarball while recorded native conformance and agent evaluation remain release evidence requirements. Exact routing, private project history, Cornell documentation, protected recipes, and applicable tools are implemented; this document does not claim registry publication or complete native-account verification.
 
 ## Local validation and packaging
 

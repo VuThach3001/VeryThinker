@@ -2,7 +2,7 @@
 
 VeryThinker provides a manager-led engineering workflow from one requirement. Alpha.3 strict execution uses native **Codex**; adapters are also generated for **Claude Code and GitHub Copilot**, with exact-model execution restricted until verified. The manager discusses with specialists, reports decisions, delivers implementation and documentation, verifies evidence, obtains independent review, finishes tasks, and prepares reviewed shared knowledge.
 
-**Status: `0.1.0-alpha.3`, local prerelease.** Alpha.3 adds exact native Codex routing receipts, batch requirements, private project archives, Cornell knowledge, and reviewed parameterized recipes. Actual Sol/Luna inference access is recorded separately from engineering-increment acceptance and full client conformance. See [compatibility](docs/compatibility.md), [validation](docs/validation.md), and [release criteria](docs/release.md).
+**Status: `0.1.0-alpha.3.1`, local prerelease.** Alpha.3 adds exact native Codex routing receipts, batch requirements, private project archives, Cornell knowledge, and reviewed parameterized recipes. Actual Sol/Luna inference access is recorded separately from engineering-increment acceptance and full client conformance. See [compatibility](docs/compatibility.md), [validation](docs/validation.md), and [release criteria](docs/release.md).
 
 All instructions, skills, documentation, CLI output, and generated records are in English.
 
@@ -20,7 +20,7 @@ npm run package:smoke
 In a target project, install that tarball. The following PowerShell example uses this checkout's default path; replace it when needed:
 
 ```powershell
-npm install --save-dev D:/workspace/VeryThinker/artifacts/verythinker-0.1.0-alpha.3.tgz
+npm install --save-dev D:/workspace/VeryThinker/artifacts/verythinker-0.1.0-alpha.3.1.tgz
 npx verythinker init --name "My project" --profile software --platforms codex,claude,copilot
 ```
 

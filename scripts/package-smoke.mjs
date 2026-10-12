@@ -17,6 +17,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packageVersion = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8')).version;
 const options = process.argv.slice(2);
 const supplied = options.indexOf('--tarball');
 const npmCli = [
@@ -75,7 +76,7 @@ try {
     'codex,claude,copilot',
   ]);
   assert.equal(initialization.config.schema_version, 1);
-  assert.equal(initialization.installation.version, '0.1.0-alpha.3');
+  assert.equal(initialization.installation.version, packageVersion);
   assert.ok(
     readFileSync(join(workspace, 'AGENTS.md'), 'utf8').startsWith(
       '# Existing project instructions',

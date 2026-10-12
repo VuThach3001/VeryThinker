@@ -1,5 +1,13 @@
 # Alpha.3 validation
 
+## Intake hotfix: 0.1.0-alpha.3.1
+
+The original installed alpha.3 MCP server reproduced the reported failure with a populated `requirement` and an unused empty `requirements` array: it returned "Provide requirement or requirements, rather than both" and created no records. Its published schema marked the fields optional but did not allow null placeholders. Strict client normalization can therefore expose a conflicting contract even though the original MCP schema does not require both fields.
+
+The hotfix makes intake options nullable, explains the mutually exclusive meaningful inputs, and normalizes unused null, blank-string and empty-array placeholders in the shared core. New intake, legacy intake and managed resumption use the same rule. Two meaningful inputs, malformed/empty batches, and changed resumption requirements remain errors. Request-ID retries preserve the existing workflow.
+
+Four focused intake regression tests passed; the surrounding manager, managed-routing and MCP-binding run passed 31 tests with no failures or skips. These tests exercised actual published MCP schemas and calls without native model inference. The following alpha.3 results remain historical observations, not a claim that the complete suite or authenticated workflow was rerun for this hotfix.
+
 Validation was performed on Windows x64 with Node.js 24.18.0 and npm 12.0.2. Source and input hashes in the individual reports identify the tested working-tree inputs. The alpha.2 report is preserved separately in [historical validation](validation/alpha2.md); its results do not establish alpha.3 behavior.
 
 ## Engineering and boundary checks

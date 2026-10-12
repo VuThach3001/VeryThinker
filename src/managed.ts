@@ -3,6 +3,7 @@ import {
   bindManagerInvocation,
   workflowStatus,
   finishWorkflow,
+  normalizeWorkflowInput,
   type WorkflowInput,
 } from './manager.js';
 import { nativeStatus, startNative, resumeNative, interruptNative } from './native.js';
@@ -34,6 +35,7 @@ export async function managedRun(
   input: ManagedRunInput,
   ownerToken?: string,
 ): Promise<ManagedRunResult> {
+  input = normalizeWorkflowInput(input);
   const parent = input.workflow_id
     ? getRecord(root, input.workflow_id)
     : beginWorkflow(root, input);

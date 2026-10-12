@@ -45,6 +45,7 @@ import {
   finishWorkflow,
   workflowStatus,
   bindManagerInvocation,
+  type WorkflowInput,
 } from './manager.js';
 import {
   startNative,
@@ -90,7 +91,7 @@ import {
   reviseRecipe,
   type RecipeInput,
 } from './recipes.js';
-import { managedRun } from './managed.js';
+import { managedRun, type ManagedRunInput } from './managed.js';
 import { workspaceWrite } from './workspace.js';
 import { validateEvidenceInputs, type EvidenceInputSnapshot } from './evidence-inputs.js';
 
@@ -564,6 +565,10 @@ const reservedKinds = new Set([
   'work-record',
   'recipe-instance',
 ]);
+
+function intakeArguments<T>(input: Record<string, unknown>): T {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null)) as T;
+}
 export function assertGenericRecordMutation(
   record: ReturnType<typeof getRecord>,
   receipt: NativeReceipt,
@@ -668,33 +673,44 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
   );
   tool(
     'manager_run',
-    'Start a batch engineering increment and its exact-model Sol coordinator. Give one ordinary requirement; the coordinator delegates and reports the result.',
+    'Start or resume an engineering increment and its Sol coordinator. Supply requirement for one item OR requirements for a batch. Set the unused field to null or omit it. For resume, supply workflow_id; both requirement fields may be null.',
     {
-      requirement: z.string().optional(),
-      requirements: z.array(z.string()).optional(),
-      workflow_id: z.string().optional(),
-      message: z.string().optional(),
-      title: z.string().optional(),
-      request_id: z.string().optional(),
-      change_type: z.enum(['breaking', 'feature', 'fix']).optional(),
-      providers: z.array(z.enum(['codegraph', 'context7', 'playwright'])).optional(),
+      requirement: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('One requirement. Use null or omit when supplying requirements.'),
+      requirements: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe('A requirement batch. Use null or omit when supplying requirement.'),
+      workflow_id: z.string().nullable().optional(),
+      message: z.string().nullable().optional(),
+      title: z.string().nullable().optional(),
+      request_id: z.string().nullable().optional(),
+      change_type: z.enum(['breaking', 'feature', 'fix']).nullable().optional(),
+      providers: z
+        .array(z.enum(['codegraph', 'context7', 'playwright']))
+        .nullable()
+        .optional(),
     },
     async (i) => {
-      return managedRun(root, i, ownerToken);
+      return managedRun(root, intakeArguments<ManagedRunInput>(i), ownerToken);
     },
     false,
   );
   tool(
     'manager_begin',
-    'Start or recover a requirement workflow. The active native manager owns internal discussion, execution and closure.',
+    'Start or recover a requirement workflow. Supply requirement OR requirements; set the unused field to null or omit it. The active native manager owns execution and closure.',
     {
-      requirement: z.string().optional(),
-      requirements: z.array(z.string()).optional(),
-      title: z.string().optional(),
-      invocation_id: z.string().optional(),
-      request_id: z.string().optional(),
+      requirement: z.string().nullable().optional(),
+      requirements: z.array(z.string()).nullable().optional(),
+      title: z.string().nullable().optional(),
+      invocation_id: z.string().nullable().optional(),
+      request_id: z.string().nullable().optional(),
     },
-    (i) => beginWorkflow(root, i),
+    (i) => beginWorkflow(root, intakeArguments<WorkflowInput>(i)),
     false,
   );
   tool(
