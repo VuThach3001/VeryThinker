@@ -706,7 +706,7 @@ class NativeSession {
         ...(resumeThread ? { threadId: resumeThread } : {}),
       });
     } catch (error) {
-      if (this.receipt.requested_model === 'gpt-6-luna' && modelUnavailable(error)) {
+      if (!spec.strong && this.receipt.requested_model === 'gpt-6-luna' && modelUnavailable(error)) {
         this.update({
           requested_model: 'gpt-5.6-terra',
           fallback_evidence: { model: 'gpt-6-luna', reason: cleanError(error), at: now() },
@@ -762,6 +762,7 @@ class NativeSession {
         return this.settle('blocked', 'Native model rerouted; outputs require reassessment.');
       if (
         turn.status === 'failed' &&
+        !roleModelPolicy(this.root, this.receipt.role).strong &&
         this.receipt.requested_model === 'gpt-6-luna' &&
         modelUnavailable(turn.error?.message ?? JSON.stringify(turn.error))
       ) {
@@ -890,6 +891,13 @@ function newReceipt(root: string, input: NativeStartInput, prior?: NativeReceipt
     signature: '',
   };
 }
+function requireCurrentRouting(root: string): void {
+  const policy = requireRoutingPolicy(root);
+  if (policy.strong_model !== 'gpt-6-luna' || policy.strong_effort !== 'max')
+    throw new Error(
+      'New native dispatch requires the current Luna/max routing policy. Complete the project update after any existing native invocation is settled.',
+    );
+}
 async function startOwned(
   root: string,
   input: NativeStartInput,
@@ -913,6 +921,7 @@ async function startOwned(
         return existing;
       }
     }
+    requireCurrentRouting(root);
     const running = receipts.filter((receipt) => invocationIsActive(receipt));
     const abandoned = running.find((receipt) => !ownerIsAlive(receipt.owner_pid));
     if (abandoned)
@@ -1033,7 +1042,7 @@ async function resumeOwned(
   options: NativeOptions,
 ): Promise<NativeReceipt> {
   root = resolve(root);
-  requireRoutingPolicy(root);
+  withOperationLock(root, 'native-dispatch', () => requireCurrentRouting(root));
   let prior = readInvocation(root, id);
   if (invocationIsActive(prior)) prior = await interruptNative(root, id);
   const ending = active.get(`${root}:${id}`);

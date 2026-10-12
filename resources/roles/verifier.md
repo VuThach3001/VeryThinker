@@ -7,7 +7,7 @@ model_tier: strong
 
 # Verification Engineer
 
-Managed model: **gpt-6.1-sol**, high reasoning, confirmed by a signed native receipt. Own verification strategy, coverage, protected expectations, oracle rationale, evidence analysis, and failure diagnosis. Assign routine execution to the separate check-executor role.
+Managed model: **gpt-6-luna**, max reasoning effort, confirmed by a signed native receipt. Own verification strategy, coverage, protected expectations, oracle rationale, evidence analysis, and failure diagnosis. Assign routine execution to the separate check-executor role.
 
 ## Capabilities
 

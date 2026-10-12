@@ -1,6 +1,6 @@
 # Prerelease and stable release criteria
 
-The package version is `0.1.0-alpha.3.1`. This intake hotfix accepts unused nullable/empty fields from strict clients; it preserves alpha.3 routing and engineering gates. Build and distribute a local tarball while recorded native conformance and agent evaluation remain release evidence requirements. Exact routing, private project history, Cornell documentation, protected recipes, and applicable tools are implemented; this document does not claim registry publication or complete native-account verification.
+The package version is `0.1.0-alpha.3.2`. Strong roles now request `gpt-6-luna` with `max` reasoning; routine workers remain Luna with `medium` reasoning and Terra only after observed worker-model unavailability. The intake placeholder fix and engineering gates remain in effect. Build and distribute a local tarball while recorded native conformance and agent evaluation remain release evidence requirements. Prior Sol/high receipts remain historical evidence; they do not satisfy the new policy for pending work. This document does not claim registry publication or complete engineering-workflow verification.
 
 ## Local validation and packaging
 
@@ -15,7 +15,7 @@ npm pack --pack-destination artifacts
 
 Record the source revision and relevant working-tree hashes, Node/npm versions, test results, packaged file inventory, and tarball SHA-256. Install the resulting tarball into a separate temporary project and exercise `init`, `doctor`, a complete requirement/task/check/review lifecycle, a new-session resumption, and `update`. Confirm that generated resources and the MCP executable resolve from the installed package.
 
-Package smoke uses two clearly labelled environments: installed alpha.3 verifies twelve roles, all three recipes, scoped/native/archive/Cornell MCP discovery, configuration preservation, and rejection of unconfirmed invocations; a separately initialized legacy-policy fixture exercises record, documentation, evidence, review, closure, and resume mechanics. The latter never establishes authenticated native routing. Record actual Sol/Luna/Terra execution separately through the pinned bridge.
+Package smoke uses two clearly labelled environments: installed alpha.3 verifies twelve roles, all three recipes, scoped/native/archive/Cornell MCP discovery, configuration preservation, and rejection of unconfirmed invocations; a separately initialized legacy-policy fixture exercises record, documentation, evidence, review, closure, and resume mechanics. The latter never establishes authenticated native routing. Record actual model and effort execution separately through the pinned bridge.
 
 Exercise `task resume TASK_ID` after interruption and `task repair TASK_ID --summary FEEDBACK` after review. The first repair returns work to readiness; repeated failure requires documented coordinator escalation and an explicit selected model for resumption. Confirm that a new implementation baseline requires fresh evidence and review.
 
@@ -51,7 +51,7 @@ The runner receives one JSON task on stdin and returns one JSON result on stdout
 
 The harness re-executes acceptance tests and checks protected inputs. Review-artifact presence establishes recorded separation, not review quality. Imported observations retain their reported-data provenance. Unknown cost, quota, or model observations remain unavailable.
 
-Compare acceptance rate, elapsed time, retries, escalations, escaped defects, human correction effort, and observed cost/quota. Alpha.3 enables the user-selected strict Sol/cheaper-worker policy. Claim cost/time improvements for a task category only when measured quality is preserved and efficiency improves. Three repetitions per group provide a pilot comparison, not a general optimization guarantee. The historical eighteen-trial matrix remains incomplete until actual results replace pending entries.
+Compare acceptance rate, elapsed time, retries, escalations, escaped defects, human correction effort, and observed cost/quota. Alpha.3.2 enables the user-selected strict Luna/max strategic policy with medium-effort Luna/Terra workers. Claim cost/time improvements for a task category only when measured quality is preserved and efficiency improves. Three repetitions per group provide a pilot comparison, not a general optimization guarantee. The historical eighteen-trial matrix remains incomplete until actual results replace pending entries.
 
 ## Stable release blockers
 

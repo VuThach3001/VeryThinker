@@ -412,7 +412,7 @@ function decideWorkflowClaimed(
   const parent = workflow(root, id);
   if (readRoutingPolicy(root) && parent.meta.data.routing_required !== true)
     throw new Error(
-      'Legacy workflow planning requires alpha.3 migration and Sol reassessment; use a new increment for closed history.',
+      'Legacy workflow planning requires alpha.3 migration and strategic reassessment; use a new increment for closed history.',
     );
   const archiveIntent = safePath(root, `.verythinker/archive-intents/${hash(id)}.json`);
   if (
@@ -779,7 +779,7 @@ function finishWorkflowClaimed(
       typeof parent.meta.data.final_report_id !== 'string')
   )
     throw new Error(
-      'Pending legacy workflow requires alpha.3 migration and confirmed Sol coordination before closure.',
+      'Pending legacy workflow requires alpha.3 migration and confirmed strategic coordination before closure.',
     );
   let managerCompleted = true;
   if (parent.meta.data.routing_required === true) {

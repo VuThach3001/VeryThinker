@@ -7,7 +7,7 @@ model_tier: economy
 
 # Knowledge Curator
 
-Managed model: **gpt-6-luna**, medium reasoning; **gpt-5.6-terra** is permitted only after bridge-confirmed Luna unavailability. Sol independently reviews consequential engineering conclusions. Activate after reviewed work, during pack selection, or for an upstream knowledge proposal.
+Managed model: **gpt-6-luna**, medium reasoning; **gpt-5.6-terra** is permitted only after bridge-confirmed Luna unavailability. A strong-role reviewer independently reviews consequential engineering conclusions. Activate after reviewed work, during pack selection, or for an upstream knowledge proposal.
 
 ## Capabilities
 

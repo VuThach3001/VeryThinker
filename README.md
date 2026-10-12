@@ -2,7 +2,7 @@
 
 VeryThinker provides a manager-led engineering workflow from one requirement. Alpha.3 strict execution uses native **Codex**; adapters are also generated for **Claude Code and GitHub Copilot**, with exact-model execution restricted until verified. The manager discusses with specialists, reports decisions, delivers implementation and documentation, verifies evidence, obtains independent review, finishes tasks, and prepares reviewed shared knowledge.
 
-**Status: `0.1.0-alpha.3.1`, local prerelease.** Alpha.3 adds exact native Codex routing receipts, batch requirements, private project archives, Cornell knowledge, and reviewed parameterized recipes. Actual Sol/Luna inference access is recorded separately from engineering-increment acceptance and full client conformance. See [compatibility](docs/compatibility.md), [validation](docs/validation.md), and [release criteria](docs/release.md).
+**Status: `0.1.0-alpha.3.2`, local prerelease.** Alpha.3 adds exact native Codex routing receipts, batch requirements, private project archives, Cornell knowledge, and reviewed parameterized recipes. Alpha.3.2 routes strong roles through Luna at max reasoning effort while workers retain Luna medium and evidence-gated Terra medium. Actual strong/worker model inference access is recorded separately from engineering-increment acceptance and full client conformance. See [compatibility](docs/compatibility.md), [validation](docs/validation.md), and [release criteria](docs/release.md).
 
 All instructions, skills, documentation, CLI output, and generated records are in English.
 
@@ -44,7 +44,7 @@ Preserve configuration across application restarts.
 
 The managed instructions automatically select the manager skill. The manager owns requirements, internal specialist discussion, final engineering decisions, bounded assignments, documentation, checks, review, task acceptance, and qualified knowledge contributions. It asks for missing product intent or an actual external blocker; routine decisions and record-management commands remain internal.
 
-Give one requirement or several related requirements in the same request. The managed coordinator uses **`gpt-6.1-sol`** for requirements, design, verification strategy, and independent review. Bounded implementation, research, and routine checks prefer **`gpt-6-luna`**; **`gpt-5.6-terra`** is permitted only after native execution confirms Luna is unavailable. A signed receipt from the pinned Codex App Server binds each invocation to its actual selected model and native thread/turn. Unconfirmed routing blocks affected work.
+Give one requirement or several related requirements in the same request. The managed coordinator and strong roles use **`gpt-6-luna`** with max reasoning effort for requirements, design, verification strategy, and independent review. Bounded implementation, research, and routine checks use **`gpt-6-luna`** with medium reasoning; **`gpt-5.6-terra`** with medium reasoning is permitted only after native execution confirms Luna is unavailable. A signed receipt from the pinned Codex App Server binds each invocation to its actual selected model and native thread/turn. Unconfirmed routing blocks affected work.
 
 Default project policy enables accepted increment snapshots in a private project namespace, and independently reviewed generalized knowledge draft PRs to the shared library. Project records, implementation, and verification inputs retain their original paths and hashes in the private snapshot. Shared knowledge merging remains a human decision. Read [the manager-first workflow](docs/autonomous-manager.md) for policy, resumption, and native execution limits.
 
@@ -97,7 +97,7 @@ The CLI and local stdio MCP server share the same core. Commands return structur
 
 The manager uses MCP or the CLI internally. `npx verythinker --help` remains available for debugging and direct inspection; the user does not need to run each workflow step.
 
-Twelve [role contracts](docs/roles.md) include a dedicated codebase analyst and check executor. Verification strategy belongs to Sol; prescribed execution belongs to a cheaper worker. Run at most three workers and escalate repeated failure after one repair attempt. Strict Codex routing is the alpha.3 default. Claude/Copilot adapters retain their resources while exact-model execution remains restricted until verified.
+Twelve [role contracts](docs/roles.md) include a dedicated codebase analyst and check executor. Verification strategy belongs to the strong-role verifier; prescribed execution belongs to a worker. Run at most three workers and escalate repeated failure after one repair attempt. Strict Codex routing is the alpha.3 default. Claude/Copilot adapters retain their resources while exact-model execution remains restricted until verified.
 
 ## Persistent records and reusable knowledge
 
@@ -113,7 +113,7 @@ Knowledge packs carry provenance, applicability, assumptions, limitations, depen
 
 [Cornell notes](docs/cornell.md) turn research, analysis, guidance, root causes, and lessons into visible source-backed documents with concrete demonstrations and separate runnable practice/answer artifacts. The quote **“DO NOT JUST TALK ABOUT IT — SHOW IT”** appears in every note. Generated knowledge records reference the authoritative narrative and its hashes; user-written practice solutions are preserved.
 
-[Versioned recipes](docs/recipes.md) provide Cornell evidence notes, scalar configuration persistence, and embedded hysteresis load control. Sol reviews and freezes parameters, coverage, expected outcomes, oracle rationale, and tolerances before a worker executes them. A developer generates implementation; an independent check executor records actual checks. Changed acceptance artifacts require reviewed reassessment.
+[Versioned recipes](docs/recipes.md) provide Cornell evidence notes, scalar configuration persistence, and embedded hysteresis load control. The responsible strong roles review and freeze parameters, coverage, expected outcomes, oracle rationale, and tolerances before a worker executes them. A developer generates implementation; an independent check executor records actual checks. Changed acceptance artifacts require reviewed reassessment.
 
 The curator derives generalized candidates from reviewed project lessons and obtains a current separate generalization review. `.verythinker/automation.json` controls automatic draft PR creation and its upstream repository, defaulting to `VuThach3001/VeryThinker`. The manager submits qualified public-safe material under this saved policy and records the PR for recovery. Authentication and repository write access are required; failures remain explicit blockers. Submission never merges or publishes a package. Tests use a simulated GitHub API, and local packaging creates no real upstream PR.
 

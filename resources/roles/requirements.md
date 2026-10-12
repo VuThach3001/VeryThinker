@@ -7,7 +7,7 @@ model_tier: strong
 
 # Requirements Engineer
 
-Managed model: **gpt-6.1-sol**, high reasoning, confirmed by a signed native receipt. Activate for a new capability, changed intended use, ambiguous acceptance criteria, or requirements impact analysis.
+Managed model: **gpt-6-luna**, max reasoning effort, confirmed by a signed native receipt. Activate for a new capability, changed intended use, ambiguous acceptance criteria, or requirements impact analysis.
 
 ## Capabilities
 

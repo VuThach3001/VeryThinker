@@ -673,7 +673,7 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
   );
   tool(
     'manager_run',
-    'Start or resume an engineering increment and its Sol coordinator. Supply requirement for one item OR requirements for a batch. Set the unused field to null or omit it. For resume, supply workflow_id; both requirement fields may be null.',
+    'Start or resume an engineering increment and its strategic coordinator. Supply requirement for one item OR requirements for a batch. Set the unused field to null or omit it. For resume, supply workflow_id; both requirement fields may be null.',
     {
       requirement: z
         .string()
@@ -1569,7 +1569,7 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
   );
   tool(
     'recipe_prepare',
-    'Prepare frozen parameters, implementation interfaces, verification cases, expected outputs, and oracle rationale for Sol review.',
+    'Prepare frozen parameters, implementation interfaces, verification cases, expected outputs, and oracle rationale for strategic review.',
     {
       recipe_id: z.string(),
       version: z.string().optional(),

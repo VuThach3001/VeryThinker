@@ -12,10 +12,17 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { parse } from 'jsonc-parser';
 import { installProject, updateProject, doctor, configureCodeGraph } from '../dist/installer.js';
 import { codeGraphConformanceChecks } from '../dist/adapters.js';
-import { createRecord, getRecord, updateRecord } from '../dist/storage.js';
+import { createRecord, getRecord, updateRecord, hash, readConfig } from '../dist/storage.js';
+import {
+  canonicalJson,
+  defaultRoutingPolicy,
+  ownerIsAlive,
+  priorDefaultRoutingPolicy,
+} from '../dist/routing.js';
 import { resumeTask } from '../dist/engineering.js';
 
 function project(t, platforms = ['codex', 'claude', 'copilot']) {
@@ -43,6 +50,44 @@ function write(root, path, content) {
 }
 function read(root, path) {
   return readFileSync(join(root, path), 'utf8');
+}
+function signedReceipt(
+  root,
+  state = 'completed',
+  { ownerPid = process.pid, serverPid = null } = {},
+) {
+  const pair = generateKeyPairSync('ed25519');
+  const publicKey = pair.publicKey.export({ type: 'spki', format: 'pem' });
+  const keyId = hash(publicKey);
+  mkdirSync(join(root, '.verythinker/native/keys'), { recursive: true });
+  mkdirSync(join(root, '.verythinker/native/receipts'), { recursive: true });
+  write(root, `.verythinker/native/keys/${keyId}.pem`, publicKey);
+  write(root, '.verythinker/native/trust.json', JSON.stringify({ keys: [keyId] }));
+  const id = randomUUID();
+  const unsigned = {
+    schema_version: 1,
+    issuer: 'verythinker-codex-app-server',
+    execution_mode: 'native',
+    id,
+    receipt_path: `.verythinker/native/receipts/${id}.json`,
+    project_id: readConfig(root).project_id,
+    state,
+    owner_pid: ownerPid,
+    server_pid: serverPid,
+    key_id: keyId,
+  };
+  const receiptPath = unsigned.receipt_path;
+  write(
+    root,
+    receiptPath,
+    JSON.stringify({
+      ...unsigned,
+      signature: sign(null, Buffer.from(canonicalJson(unsigned)), pair.privateKey).toString(
+        'base64',
+      ),
+    }),
+  );
+  return { path: receiptPath, bytes: read(root, receiptPath) };
 }
 
 test('installation preserves instructions and JSONC/TOML siblings, then is idempotent', (t) => {
@@ -233,7 +278,7 @@ test('native hook commands and model metadata are generated without claiming liv
   }
 });
 
-test('alpha.3 migration fills unset Codex mappings and preserves authored platform overrides', (t) => {
+test('initial installation fills Luna Codex mappings and preserves authored platform overrides', (t) => {
   const root = project(t);
   const config = JSON.parse(read(root, '.verythinker/config.json'));
   config.models = {
@@ -260,15 +305,132 @@ test('alpha.3 migration fills unset Codex mappings and preserves authored platfo
     (item) => item.path === '.verythinker/config.json#models.codex',
   );
   assert.ok(conflict);
-  assert.equal(JSON.parse(read(root, conflict.candidate)).models.strong.codex, 'gpt-6.1-sol');
+  assert.equal(JSON.parse(read(root, conflict.candidate)).models.strong.codex, 'gpt-6-luna');
   assert.equal(
     read(root, '.verythinker/records/legacy.md'),
     'Historical accepted record retained byte for byte.\n',
   );
-  assert.match(read(root, '.codex/agents/verythinker-manager.toml'), /model = "gpt-6.1-sol"/);
+  assert.match(read(root, '.codex/agents/verythinker-manager.toml'), /model = "gpt-6-luna"/);
   assert.equal(
     updateProject(root).conflicts.find((item) => item.path === conflict.path).candidate,
     conflict.candidate,
+  );
+});
+
+test('update migrates the exact Sol/high defaults and preserves accepted records and receipt bytes', (t) => {
+  const root = project(t, ['codex']);
+  write(
+    root,
+    '.verythinker/routing.json',
+    JSON.stringify(priorDefaultRoutingPolicy(), null, 2) + '\n',
+  );
+  const config = JSON.parse(read(root, '.verythinker/config.json'));
+  config.models.strong = { codex: 'gpt-6.1-sol', claude: 'opus' };
+  write(root, '.verythinker/config.json', JSON.stringify(config, null, 2) + '\n');
+  const accepted = createRecord(root, {
+    type: 'task',
+    title: 'Accepted historical work',
+    status: 'accepted',
+  });
+  const acceptedBytes = read(root, accepted.path);
+  const receipt = signedReceipt(root, 'completed');
+  const report = updateProject(root);
+  const migratedPolicyBytes = read(root, '.verythinker/routing.json');
+  const migratedConfigBytes = read(root, '.verythinker/config.json');
+  assert.deepEqual(JSON.parse(migratedPolicyBytes), defaultRoutingPolicy());
+  assert.deepEqual(JSON.parse(migratedConfigBytes).models.strong, {
+    codex: 'gpt-6-luna',
+    claude: 'opus',
+  });
+  assert.ok(report.updated.includes('.verythinker/routing.json#legacy-strong-policy'));
+  assert.equal(read(root, accepted.path), acceptedBytes);
+  assert.equal(read(root, receipt.path), receipt.bytes);
+  assert.match(read(root, '.codex/agents/verythinker-manager.toml'), /model = "gpt-6-luna"/);
+  assert.match(
+    read(root, '.codex/agents/verythinker-manager.toml'),
+    /model_reasoning_effort = "max"/,
+  );
+  const repeated = updateProject(root);
+  assert.equal(read(root, '.verythinker/routing.json'), migratedPolicyBytes);
+  assert.equal(read(root, '.verythinker/config.json'), migratedConfigBytes);
+  assert.equal(read(root, accepted.path), acceptedBytes);
+  assert.equal(read(root, receipt.path), receipt.bytes);
+  assert.ok(!repeated.updated.includes('.verythinker/routing.json#legacy-strong-policy'));
+  assert.deepEqual(repeated.conflicts, []);
+});
+
+test('authored Sol override is preserved while the exact managed legacy mapping migrates', (t) => {
+  const root = project(t, ['codex']);
+  write(
+    root,
+    '.verythinker/routing.json',
+    JSON.stringify(priorDefaultRoutingPolicy(), null, 2) + '\n',
+  );
+  const config = JSON.parse(read(root, '.verythinker/config.json'));
+  config.models.strong = 'gpt-6.1-sol';
+  write(root, '.verythinker/config.json', JSON.stringify(config, null, 2) + '\n');
+  const report = updateProject(root);
+  assert.equal(JSON.parse(read(root, '.verythinker/config.json')).models.strong, 'gpt-6.1-sol');
+  const conflict = report.conflicts.find(
+    (item) => item.path === '.verythinker/config.json#models.codex',
+  );
+  assert.ok(conflict);
+  assert.equal(JSON.parse(read(root, conflict.candidate)).models.strong.codex, 'gpt-6-luna');
+  assert.deepEqual(JSON.parse(read(root, '.verythinker/routing.json')), defaultRoutingPolicy());
+});
+
+test('live authenticated native invocation defers legacy policy and project-record migration', (t) => {
+  const root = project(t, ['codex']);
+  installProject(root);
+  write(
+    root,
+    '.verythinker/routing.json',
+    JSON.stringify(priorDefaultRoutingPolicy(), null, 2) + '\n',
+  );
+  const config = JSON.parse(read(root, '.verythinker/config.json'));
+  config.name = 'Original name';
+  config.models.strong = { codex: 'gpt-6.1-sol' };
+  write(root, '.verythinker/config.json', JSON.stringify(config, null, 2) + '\n');
+  const configBefore = read(root, '.verythinker/config.json');
+  const policyBefore = read(root, '.verythinker/routing.json');
+  const adapterBefore = read(root, '.codex/config.toml');
+  const manifestBefore = read(root, '.verythinker/install-manifest.json');
+  const pending = createRecord(root, {
+    type: 'task',
+    title: 'Pending legacy work during active invocation',
+    owner: 'developer',
+    status: 'in-progress',
+    data: { allowed_paths: ['src'] },
+  });
+  const pendingBytes = read(root, pending.path);
+  const endedOwner = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+  assert.equal(ownerIsAlive(endedOwner.pid), false);
+  const receipt = signedReceipt(root, 'running', {
+    ownerPid: endedOwner.pid,
+    serverPid: process.pid,
+  });
+  const report = installProject(root, { name: 'Attempted mid-turn edit' });
+  assert.equal(read(root, '.verythinker/config.json'), configBefore);
+  assert.equal(read(root, '.verythinker/routing.json'), policyBefore);
+  assert.equal(read(root, '.codex/config.toml'), adapterBefore);
+  assert.equal(read(root, '.verythinker/install-manifest.json'), manifestBefore);
+  assert.equal(read(root, pending.path), pendingBytes);
+  assert.equal(read(root, receipt.path), receipt.bytes);
+  assert.ok(report.conflicts.some((item) => item.path === '.verythinker/routing.json'));
+  assert.ok(existsSync(join(root, '.verythinker/routing.json.verythinker-update-routing')));
+  assert.ok(report.warnings.some((item) => /live native invocation/i.test(item)));
+});
+
+test('unknown routing policy is preserved and produces a Luna/max review candidate', (t) => {
+  const root = project(t, ['codex']);
+  const authored = { ...defaultRoutingPolicy(), strong_effort: 'xhigh' };
+  const original = JSON.stringify(authored, null, 2) + '\n';
+  write(root, '.verythinker/routing.json', original);
+  assert.throws(() => updateProject(root), /not an approved exact schema/);
+  assert.equal(read(root, '.verythinker/routing.json'), original);
+  assert.deepEqual(
+    JSON.parse(read(root, '.verythinker/routing.json.verythinker-update-routing')),
+    defaultRoutingPolicy(),
   );
 });
 
@@ -418,7 +580,7 @@ test('concurrent installers allocate one persistent increment identity for pendi
   assert.equal(getRecord(root, pending.meta.id).meta.data.increment_id, first);
 });
 
-test('strict roles and gateway tool declarations preserve reviewer independence', (t) => {
+test('strict roles use Luna max and gateway tool declarations preserve reviewer independence', (t) => {
   const root = project(t);
   installProject(root);
   for (const role of [
@@ -430,8 +592,8 @@ test('strict roles and gateway tool declarations preserve reviewer independence'
     'reviewer',
   ]) {
     const file = read(root, `.codex/agents/verythinker-${role}.toml`);
-    assert.match(file, /model = "gpt-6.1-sol"/);
-    assert.match(file, /model_reasoning_effort = "high"/);
+    assert.match(file, /model = "gpt-6-luna"/);
+    assert.match(file, /model_reasoning_effort = "max"/);
     assert.match(file, /sandbox_mode = "read-only"/);
   }
   for (const role of [

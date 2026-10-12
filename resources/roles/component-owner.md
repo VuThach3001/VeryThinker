@@ -7,7 +7,7 @@ model_tier: strong
 
 # Package Responsible / Component Owner
 
-Managed model: **gpt-6.1-sol**, high reasoning, confirmed by a signed native receipt. Activate when a subsystem or component has multiple contributors or integration dependencies.
+Managed model: **gpt-6-luna**, max reasoning effort, confirmed by a signed native receipt. Activate when a subsystem or component has multiple contributors or integration dependencies.
 
 ## Capabilities
 

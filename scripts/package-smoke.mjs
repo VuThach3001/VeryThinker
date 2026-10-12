@@ -89,7 +89,9 @@ try {
     12,
   );
   assert.equal(core.listRecipes().length, 3);
-  assert.equal(core.readRoutingPolicy(workspace).strong_model, 'gpt-6.1-sol');
+  assert.equal(core.readRoutingPolicy(workspace).strong_model, 'gpt-6-luna');
+  assert.equal(core.readRoutingPolicy(workspace).strong_effort, 'max');
+  assert.equal(core.readRoutingPolicy(workspace).worker_effort, 'medium');
   const strictRequirement = core.createRecord(workspace, {
     type: 'requirement',
     title: 'Strict package routing fixture',

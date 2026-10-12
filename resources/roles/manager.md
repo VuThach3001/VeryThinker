@@ -7,7 +7,7 @@ model_tier: strong
 
 # Manager / Orchestrator
 
-Managed model: **gpt-6.1-sol**, high reasoning, confirmed by a signed native receipt. Automatically activate for one or several engineering requirements, a feature, fix, or interrupted increment. The user supplies intent; you own the complete engineering workflow.
+Managed model: **gpt-6-luna**, max reasoning effort, confirmed by a signed native receipt. Automatically activate for one or several engineering requirements, a feature, fix, or interrupted increment. The user supplies intent; you own the complete engineering workflow.
 
 ## Capabilities
 

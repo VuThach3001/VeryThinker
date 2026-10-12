@@ -36,16 +36,24 @@ export type NativeState =
   | 'interrupted'
   | 'blocked'
   | 'orphaned';
-export interface RoutingPolicy {
+interface RoutingPolicyBase {
   schema_version: 1;
   enabled: true;
   platform: 'codex';
   runtime_version: '0.162.1';
-  strong_model: 'gpt-6.1-sol';
   worker_models: ['gpt-6-luna', 'gpt-5.6-terra'];
-  strong_effort: 'high';
   worker_effort: 'medium';
 }
+export interface LegacyRoutingPolicy extends RoutingPolicyBase {
+  strong_model: 'gpt-6.1-sol';
+  strong_effort: 'high';
+}
+export interface CurrentRoutingPolicy extends RoutingPolicyBase {
+  strong_model: 'gpt-6-luna';
+  strong_effort: 'max';
+}
+export type RoutingPolicy = CurrentRoutingPolicy | LegacyRoutingPolicy;
+export type ApprovedRoutingPolicy = RoutingPolicy;
 export interface NativeReceipt {
   schema_version: 1;
   issuer: 'verythinker-codex-app-server';
@@ -66,7 +74,7 @@ export interface NativeReceipt {
   native_sandbox: string | null;
   native_tool_scope: string[];
   gateway_policy_sha256: string | null;
-  reasoning_effort: 'high' | 'medium';
+  reasoning_effort: 'high' | 'xhigh' | 'max' | 'medium';
   confirmed_reasoning_effort: string | null;
   client_version: string;
   runtime_integrity: string;
@@ -106,7 +114,19 @@ export function canonicalJson(value: unknown): string {
       .join(',')}}`;
   return JSON.stringify(value);
 }
-export function defaultRoutingPolicy(): RoutingPolicy {
+export function defaultRoutingPolicy(): CurrentRoutingPolicy {
+  return {
+    schema_version: 1,
+    enabled: true,
+    platform: 'codex',
+    runtime_version: '0.162.1',
+    strong_model: 'gpt-6-luna',
+    worker_models: ['gpt-6-luna', 'gpt-5.6-terra'],
+    strong_effort: 'max',
+    worker_effort: 'medium',
+  };
+}
+export function priorDefaultRoutingPolicy(): LegacyRoutingPolicy {
   return {
     schema_version: 1,
     enabled: true,
@@ -122,11 +142,14 @@ export function readRoutingPolicy(root: string): RoutingPolicy | null {
   const path = safePath(root, '.verythinker/routing.json');
   if (!existsSync(path)) return null;
   const value = JSON.parse(readFileSync(path, 'utf8'));
-  if (canonicalJson(value) !== canonicalJson(defaultRoutingPolicy()))
+  if (
+    canonicalJson(value) !== canonicalJson(defaultRoutingPolicy()) &&
+    canonicalJson(value) !== canonicalJson(priorDefaultRoutingPolicy())
+  )
     throw new Error(
-      'Routing configuration differs from the approved alpha.3 Sol/Luna/Terra policy. Review the migration conflict before strict execution.',
+      'Routing configuration differs from the approved strategic Luna/max policy and its exact Sol/high legacy default. Review the migration conflict before strict execution.',
     );
-  return value as RoutingPolicy;
+  return value as ApprovedRoutingPolicy;
 }
 export function ensureRoutingPolicy(root: string): RoutingPolicy {
   readConfig(root);
@@ -152,11 +175,16 @@ export function requireRoutingPolicy(root: string): RoutingPolicy {
 export function roleModelPolicy(
   root: string,
   role: string,
-): { role: NativeRole; models: string[]; reasoning_effort: 'high' | 'medium'; strong: boolean } {
+): {
+  role: NativeRole;
+  models: string[];
+  reasoning_effort: 'high' | 'max' | 'medium';
+  strong: boolean;
+} {
   const policy = requireRoutingPolicy(root);
   const mappings = readConfig(root).models;
   for (const [tier, expected] of [
-    ['strong', 'gpt-6.1-sol'],
+    ['strong', policy.strong_model],
     ['economy', 'gpt-6-luna'],
     ['balanced', 'gpt-6-luna'],
   ] as const) {
@@ -169,7 +197,7 @@ export function roleModelPolicy(
           : null;
     if (codexModel && codexModel !== expected)
       throw new Error(
-        `Authored Codex ${tier} model mapping conflicts with the approved alpha.3 routing defaults. Review the migration candidate before dispatch.`,
+        `Authored Codex ${tier} model mapping conflicts with the approved strategic routing defaults. Review the migration candidate before dispatch.`,
       );
   }
   if (

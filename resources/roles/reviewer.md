@@ -9,7 +9,7 @@ model_tier: strong
 
 In review submissions, `findings` contains unresolved defects only. Submit `decision: "pass"` with `findings: []` after all defects are resolved. Put positive observations, approval rationale, and coverage explanations in your seven-section assignment report. A passing decision with nonempty findings is contradictory and is rejected.
 
-Managed model: **gpt-6.1-sol**, high reasoning, confirmed by a signed native receipt. Invoke separately from the implementation worker.
+Managed model: **gpt-6-luna**, max reasoning effort, confirmed by a signed native receipt. Invoke separately from the implementation worker.
 
 ## Capabilities
 

@@ -14,16 +14,21 @@ import { parse, modify, applyEdits, type ParseError } from 'jsonc-parser';
 import { ensureAutomationPolicy, readAutomationPolicy, type AutomationPolicy } from './manager.js';
 import { ensureArchivePolicy, readArchivePolicy, type ArchivePolicy } from './archives.js';
 import {
+  defaultRoutingPolicy,
+  priorDefaultRoutingPolicy,
+  canonicalJson,
   ensureRoutingPolicy,
   readRoutingPolicy,
   readInvocation,
+  invocationIsActive,
+  ownerIsAlive,
   routingProblems,
   strongRoles,
   workerRoles,
   type RoutingPolicy,
 } from './routing.js';
 import { ensureToolPolicy, toolObservations, roleCapabilities } from './tools.js';
-import { loadRecords, updateRecord, withOperationLock } from './storage.js';
+import { atomicWrite, loadRecords, updateRecord, withOperationLock } from './storage.js';
 import { strings } from './engineering.js';
 import {
   adapterOutputs,
@@ -253,7 +258,7 @@ function migratePendingRouting(
                 version: 'alpha.3',
                 prior_observations: 'legacy',
                 reassessment:
-                  'Confirmed Sol planning and native worker invocation are required before resuming pending work.',
+                  'Confirmed Luna/max strategic planning and a native worker invocation are required before resuming pending work.',
               },
             }),
       },
@@ -262,6 +267,82 @@ function migratePendingRouting(
     report.updated.push(`${record.path}#pending-routing`);
   }
   return { migrated, preserved, blocked: false };
+}
+interface RoutingUpdate {
+  policy: RoutingPolicy;
+  legacy: boolean;
+  blocked: boolean;
+  migrate: boolean;
+}
+function routingCandidate(root: string, report: InstallReport, reason: string): string {
+  const base = '.verythinker/routing.json.verythinker-update-routing';
+  const body = JSON.stringify(defaultRoutingPolicy(), null, 2) + '\n';
+  let target = base;
+  let suffix = 1;
+  while (existsSync(safePath(root, target)) && text(safePath(root, target)) !== body)
+    target = `${base}.${suffix++}`;
+  save(safePath(root, target), body);
+  report.conflicts.push({ path: '.verythinker/routing.json', candidate: target, reason });
+  return target;
+}
+function activeRoutingOwner(root: string): { active: boolean; reason?: string } {
+  const directory = safePath(root, '.verythinker/native/receipts');
+  if (!existsSync(directory)) return { active: false };
+  for (const file of readdirSync(directory)) {
+    const match = /^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.json$/i.exec(
+      file,
+    );
+    if (!match) continue;
+    try {
+      const receipt = readInvocation(root, match[1]!);
+      const ownerAlive = ownerIsAlive(receipt.owner_pid);
+      const serverAlive =
+        typeof receipt.server_pid === 'number' && ownerIsAlive(receipt.server_pid);
+      if (invocationIsActive(receipt) && (ownerAlive || serverAlive))
+        return { active: true, reason: `Live native invocation ${receipt.id} is still active.` };
+    } catch {
+      return {
+        active: true,
+        reason: `Native receipt ${match[1]} could not be authenticated, so routing migration cannot establish that it is inactive.`,
+      };
+    }
+  }
+  return { active: false };
+}
+function prepareRoutingUpdate(root: string, report: InstallReport): RoutingUpdate {
+  let existing: RoutingPolicy | null;
+  try {
+    existing = readRoutingPolicy(root);
+  } catch (error) {
+    routingCandidate(
+      root,
+      report,
+      `Authored routing policy was preserved because it is not one of the approved exact schemas. Review the Luna/max candidate. ${String(error)}`,
+    );
+    report.warnings.push(
+      'Routing policy migration is blocked until the authored policy is reviewed; the original policy remains active.',
+    );
+    throw new Error(
+      'Routing policy is not an approved exact schema; it was preserved and a Luna/max review candidate was written.',
+    );
+  }
+  if (!existing)
+    return { policy: defaultRoutingPolicy(), legacy: false, blocked: false, migrate: false };
+  const legacy = canonicalJson(existing) === canonicalJson(priorDefaultRoutingPolicy());
+  if (!legacy) return { policy: existing, legacy: false, blocked: false, migrate: false };
+  const active = activeRoutingOwner(root);
+  if (active.active) {
+    routingCandidate(
+      root,
+      report,
+      `The exact Sol/high legacy policy remains in place because ${active.reason} Review the Luna/max candidate after the invocation is settled.`,
+    );
+    report.warnings.push(
+      'Routing and Codex model migration is deferred while a live native invocation may be using the legacy policy.',
+    );
+    return { policy: existing, legacy: true, blocked: true, migrate: false };
+  }
+  return { policy: defaultRoutingPolicy(), legacy: true, blocked: false, migrate: true };
 }
 function outputID(output: ManagedOutput): string {
   return `${output.path}${output.key ? `#${output.key}` : ''}`;
@@ -454,12 +535,13 @@ function resourceOutputs(): ManagedOutput[] {
 export function installProject(root: string, options: InstallOptions = {}): InstallReport {
   root = realpathSync(resolve(root));
   configFor(root);
-  return withOperationLock(root, 'project-install', () => installProjectClaimed(root, options));
+  return withOperationLock(root, 'project-install', () =>
+    withOperationLock(root, 'native-dispatch', () => installProjectClaimed(root, options)),
+  );
 }
 function installProjectClaimed(root: string, options: InstallOptions): InstallReport {
   const config = configFor(root);
-  const policyExists = existsSync(safePath(root, '.verythinker/automation.json'));
-  ensureAutomationPolicy(root);
+  const automationExists = existsSync(safePath(root, '.verythinker/automation.json'));
   const policyPaths = [
     '.verythinker/routing.json',
     '.verythinker/archive.json',
@@ -473,8 +555,6 @@ function installProjectClaimed(root: string, options: InstallOptions): InstallRe
     throw new Error('Unsupported platform requested.');
   if (!['basic', 'software', 'embedded'].includes(config.profile))
     throw new Error('Unsupported project profile requested.');
-  if (options.platforms || options.profile || options.name)
-    save(safePath(root, '.verythinker/config.json'), JSON.stringify(config, null, 2) + '\n');
   const manifest = manifestFor(root);
   const report: InstallReport = {
     schema_version: 1,
@@ -487,40 +567,63 @@ function installProjectClaimed(root: string, options: InstallOptions): InstallRe
     conflicts: [],
     warnings: [],
   };
-  if (!policyExists) report.installed.push('.verythinker/automation.json');
-  // Legacy tier mappings remain readable; strict native dispatch uses its own
-  // fixed policy. Only unset Codex mappings receive the new defaults.
-  const defaults = { economy: 'gpt-6-luna', balanced: 'gpt-6-luna', strong: 'gpt-6.1-sol' };
+  const routingUpdate = prepareRoutingUpdate(root, report);
+  if (routingUpdate.blocked) return report;
+  if (options.platforms || options.profile || options.name)
+    save(safePath(root, '.verythinker/config.json'), JSON.stringify(config, null, 2) + '\n');
+  ensureAutomationPolicy(root);
+  if (!automationExists) report.installed.push('.verythinker/automation.json');
+  const defaults = {
+    economy: 'gpt-6-luna',
+    balanced: 'gpt-6-luna',
+    strong: routingUpdate.policy.strong_model,
+  };
   let changedMapping = false;
   const proposedConfig: AdapterConfig = structuredClone(config);
   let authoredConflict = false;
-  for (const tier of ['economy', 'balanced', 'strong'] as const) {
-    const current = config.models[tier];
-    const value = current && typeof current === 'object' ? current['codex'] : current;
-    if (!value || value === 'inherit' || value === 'auto') {
-      config.models[tier] = {
-        ...(current && typeof current === 'object' ? current : {}),
-        codex: defaults[tier],
-      };
-      proposedConfig.models[tier] = config.models[tier];
-      changedMapping = true;
-    } else if (value !== defaults[tier]) {
-      authoredConflict = true;
-      proposedConfig.models[tier] = {
-        ...(current && typeof current === 'object'
-          ? current
-          : Object.fromEntries(
-              config.platforms
-                .filter((platform) => platform !== 'codex')
-                .map((platform) => [platform, current]),
-            )),
-        codex: defaults[tier],
-      };
+  if (!routingUpdate.blocked) {
+    for (const tier of ['economy', 'balanced', 'strong'] as const) {
+      const current = config.models[tier];
+      const value = current && typeof current === 'object' ? current['codex'] : current;
+      const managedLegacyStrong =
+        tier === 'strong' &&
+        routingUpdate.legacy &&
+        routingUpdate.migrate &&
+        current !== null &&
+        typeof current === 'object' &&
+        value === priorDefaultRoutingPolicy().strong_model;
+      if (managedLegacyStrong) {
+        config.models[tier] = {
+          ...(current && typeof current === 'object' ? current : {}),
+          codex: defaults[tier],
+        };
+        proposedConfig.models[tier] = config.models[tier];
+        changedMapping = true;
+      } else if (!value || value === 'inherit' || value === 'auto') {
+        config.models[tier] = {
+          ...(current && typeof current === 'object' ? current : {}),
+          codex: defaults[tier],
+        };
+        proposedConfig.models[tier] = config.models[tier];
+        changedMapping = true;
+      } else if (value !== defaults[tier]) {
+        authoredConflict = true;
+        proposedConfig.models[tier] = {
+          ...(current && typeof current === 'object'
+            ? current
+            : Object.fromEntries(
+                config.platforms
+                  .filter((platform) => platform !== 'codex')
+                  .map((platform) => [platform, current]),
+              )),
+          codex: defaults[tier],
+        };
+      }
     }
   }
   if (changedMapping) {
     save(safePath(root, '.verythinker/config.json'), JSON.stringify(config, null, 2) + '\n');
-    report.updated.push('.verythinker/config.json#unset-codex-models');
+    report.updated.push('.verythinker/config.json#codex-model-mappings');
   }
   if (authoredConflict) {
     const candidate = '.verythinker/config.json.verythinker-update-routing';
@@ -534,17 +637,26 @@ function installProjectClaimed(root: string, options: InstallOptions): InstallRe
       path: '.verythinker/config.json#models.codex',
       candidate: target,
       reason:
-        'Authored model mappings were preserved. Managed alpha.3 dispatch enforces the installed Sol/Luna routing policy; review the legacy mapping candidate.',
+        'Authored model mappings were preserved. Managed dispatch enforces the installed strategic Luna/max policy; review the legacy mapping candidate.',
     });
     report.warnings.push(
-      'Legacy authored model mappings differ from alpha.3 managed routing and were preserved for review.',
+      'Legacy authored model mappings differ from strategic Luna/max managed routing and were preserved for review.',
     );
+  }
+  if (routingUpdate.migrate) {
+    atomicWrite(
+      safePath(root, '.verythinker/routing.json'),
+      JSON.stringify(defaultRoutingPolicy(), null, 2) + '\n',
+    );
+    report.updated.push('.verythinker/routing.json#legacy-strong-policy');
   }
   ensureRoutingPolicy(root);
   ensureArchivePolicy(root);
   ensureToolPolicy(root);
   report.installed.push(...newPolicyPaths);
-  const pendingMigration = migratePendingRouting(root, report);
+  const pendingMigration = routingUpdate.blocked
+    ? { migrated: [], preserved: [], blocked: true }
+    : migratePendingRouting(root, report);
   const migrationPath = '.verythinker/migrations/alpha3.json';
   if (!existsSync(safePath(root, migrationPath))) {
     save(
@@ -554,9 +666,9 @@ function installProjectClaimed(root: string, options: InstallOptions): InstallRe
           schema_version: 1,
           installed_version: report.version,
           historical_routing:
-            'Historical accepted/superseded records and recorded closed workflow history retain their original bytes and evidence. Pending tasks and workflows require strict native routing and Sol reassessment; old model strings are legacy observations.',
+            'Historical accepted/superseded records, closed workflow history, and signed receipts retain their original bytes and evidence. Pending work requires strict native routing and strategic reassessment; old model strings are legacy observations.',
           new_work:
-            'Installed routing policy requires confirmed Sol strong roles and confirmed Luna workers, with Terra fallback only after observed Luna unavailability.',
+            'Installed routing policy requires Luna at max for strategic roles and Luna at medium for routine workers; Terra is permitted only after observed Luna unavailability.',
           authored_overrides: authoredConflict
             ? 'preserved-with-review-candidate'
             : 'preserved-or-unset-defaults-filled',
@@ -814,8 +926,8 @@ export function doctor(root: string): DoctorReport {
               platform === 'codex'
                 ? observations.length
                   ? `${observations.length} completed invocations have currently valid signed model-selection receipts; support is limited to those observed roles/models.`
-                  : 'Strict Sol/Luna routing is configured; authenticated access and execution require successful native receipt evidence.'
-                : 'Portable role/tool declarations are generated; exact Sol/Luna native execution is verified for Codex first.',
+                  : 'Strategic Luna/max and routine Luna/medium routing is configured; authenticated access and execution require successful native receipt evidence.'
+                : 'Portable role/tool declarations are generated; strategic Luna/max and routine Luna/medium execution is verified for Codex first.',
           },
           {
             capability: 'role-tools',

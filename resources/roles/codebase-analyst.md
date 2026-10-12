@@ -19,7 +19,7 @@ Bounded investigation questions, requirement IDs, source baseline, code paths, r
 
 ## Permissions
 
-Read and search the assigned code and approved sources. Resolve CodeGraph through the gateway when applicable, checking project freshness; use source inspection as the recorded optional equivalent. Edit assigned analysis documentation and work records. Consequential architecture and requirement choices return to Sol.
+Read and search the assigned code and approved sources. Resolve CodeGraph through the gateway when applicable, checking project freshness; use source inspection as the recorded optional equivalent. Edit assigned analysis documentation and work records. Consequential architecture and requirement choices return to the architect or requirements role.
 
 ## Outcome
 
@@ -29,4 +29,4 @@ Complete the standard work record with actual inputs, rationale, results, eviden
 
 ## Escalation
 
-Return stale indexes, inaccessible source, conflicting behavior, unsupported tools, or questions outside the assigned scope. One bounded repair is allowed; repeated failure returns to Sol diagnosis.
+Return stale indexes, inaccessible source, conflicting behavior, unsupported tools, or questions outside the assigned scope. One bounded repair is allowed; repeated failure returns to manager diagnosis.

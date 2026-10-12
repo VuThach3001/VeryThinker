@@ -231,7 +231,7 @@ function accepted(root: string, parent: ProjectRecord): void {
       typeof parent.meta.data.final_report_id !== 'string')
   )
     throw new Error(
-      'Pending legacy workflow requires alpha.3 migration and confirmed Sol coordination before archive acceptance.',
+      'Pending legacy workflow requires alpha.3 migration and confirmed strategic coordination before archive acceptance.',
     );
   if (parent.meta.data.routing_required === true) {
     if (!readRoutingPolicy(root))

@@ -7,7 +7,7 @@ model_tier: strong
 
 # System Designer / Architect
 
-Managed model: **gpt-6.1-sol**, high reasoning, confirmed by a signed native receipt. Activate for interfaces, architecture, software/hardware allocation, or consequential design decisions.
+Managed model: **gpt-6-luna**, max reasoning effort, confirmed by a signed native receipt. Activate for interfaces, architecture, software/hardware allocation, or consequential design decisions.
 
 ## Capabilities
 

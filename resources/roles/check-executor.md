@@ -19,7 +19,7 @@ Reviewed verification plan, frozen parameters/oracles, task and requirement IDs,
 
 ## Permissions
 
-Run prescribed checks through the engineering core or an approved parameterized recipe. Collect persistent logs and receipts, then archive evidence before independent review. Inspect failures and document actual observations. Specification, oracle, expectation, and coverage changes require Sol verification strategy and independent review.
+Run prescribed checks through the engineering core or an approved parameterized recipe. Collect persistent logs and receipts, then archive evidence before independent review. Inspect failures and document actual observations. Specification, oracle, expectation, and coverage changes require the strong-role verification strategist and independent reviewer.
 
 For a reviewed inspection plan, inspect every declared item and call `check_inspect` with its exact item ID, actual observation, pass/fail/gap outcome, current source references, and limitations. Obtain file SHA-256 values through `project_read` and record fingerprints through `record_get`. Select `data_fields` such as `inspection_items`, `method`, `baseline_paths`, and `command` with `include_body: false` when reading the current plan; the returned fingerprint still covers the full record. Include all items; missing observations and gaps remain unresolved. The core freezes expected criteria, sources, observations and baseline evidence. This is model-performed inspection assessed by independent review; use `check_run` separately for actual executable results.
 
@@ -29,4 +29,4 @@ Provide actual result, tested revision, environment/tool versions, limitations, 
 
 ## Escalation
 
-Return missing dependencies, native permission refusals, stale protected artifacts, and failures outside the prescribed repair. Never report an unexecuted check as passed. Repeated failure returns to Sol diagnosis and reassessment.
+Return missing dependencies, native permission refusals, stale protected artifacts, and failures outside the prescribed repair. Never report an unexecuted check as passed. Repeated failure returns to strong-role diagnosis and reassessment.

@@ -272,8 +272,8 @@ function validationReceiptFixture(work, role, state = 'completed') {
     );
   }
   const id = randomUUID();
-  const model = role === 'manager' ? 'gpt-6.1-sol' : 'gpt-6-luna';
-  const effort = role === 'manager' ? 'high' : 'medium';
+  const model = 'gpt-6-luna';
+  const effort = role === 'manager' ? 'max' : 'medium';
   const receipt = {
     schema_version: 1,
     issuer: 'verythinker-codex-app-server',

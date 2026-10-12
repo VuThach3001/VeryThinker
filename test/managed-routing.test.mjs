@@ -183,11 +183,11 @@ test('an unmigrated pending legacy workflow cannot plan or close after routing i
         rationale: 'The original requirement remains applicable.',
         task_ids: [],
       }),
-    /migration and Sol reassessment/,
+    /migration and strategic reassessment/,
   );
   assert.throws(
     () => finishWorkflow(root, wf.meta.id, {}),
-    /migration and confirmed Sol coordination/,
+    /migration and confirmed strategic coordination/,
   );
   assert.equal(getRecord(root, wf.meta.id).meta.data.phase, 'intake');
 });

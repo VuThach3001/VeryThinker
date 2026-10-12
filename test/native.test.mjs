@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { initialize, createRecord } from '../dist/storage.js';
 import { createNativeBridge, shutdownNative } from '../dist/native.js';
-import { ensureRoutingPolicy, readInvocation, routingProblems } from '../dist/routing.js';
+import { ensureRoutingPolicy, priorDefaultRoutingPolicy, readInvocation, routingProblems } from '../dist/routing.js';
 const fixture = fileURLToPath(new URL('../resources/native/fake-app-server.mjs', import.meta.url));
 function project(t) {
   const root = mkdtempSync(join(tmpdir(), 'verythinker-native-'));
@@ -42,7 +42,8 @@ test('native receipts bind acknowledged model, completion and invocation identit
     workflow_id: 'WF-1',
     request_id: 'intake-1',
   });
-  assert.equal(running.confirmed_model, 'gpt-6.1-sol');
+  assert.equal(running.confirmed_model, 'gpt-6-luna');
+  assert.equal(running.confirmed_reasoning_effort, 'max');
   assert.equal(running.state, 'running');
   assert.match(
     routingProblems(root, 'manager', running.id, {
@@ -80,6 +81,15 @@ test('native receipts bind acknowledged model, completion and invocation identit
     /different workflow/,
   );
 });
+test('new native dispatch rejects an unmigrated legacy routing policy', async (t) => {
+  const root = project(t);
+  writeFileSync(join(root, '.verythinker/routing.json'), JSON.stringify(priorDefaultRoutingPolicy(), null, 2) + '\n');
+  await assert.rejects(
+    bridge().start(root, { role: 'manager', prompt: 'Coordinate new work.' }),
+    /current Luna\/max routing policy/,
+  );
+});
+
 test('native acknowledgment mismatch or missing model prevents turn execution', async (t) => {
   const root = project(t);
   for (const scenario of ['wrong-model', 'missing-model', 'wrong-effort']) {
@@ -113,6 +123,20 @@ test('worker fallback needs a native unsupported-model error', async (t) => {
   assert.equal(blocked.state, 'blocked');
   assert.equal(blocked.requested_model, 'gpt-6-luna');
   assert.equal(blocked.fallback_evidence, null);
+});
+
+test('strong Luna roles never fall back to Terra at thread or inference failure', async (t) => {
+  const root = project(t);
+  for (const scenario of ['unavailable', 'turn-unavailable']) {
+    const native = bridge(scenario);
+    const started = await native.start(root, { role: 'manager', prompt: 'Coordinate a bounded requirement.' });
+    const settled = await native.wait(root, started.id, 1000);
+    assert.ok(['blocked', 'failed'].includes(settled.state));
+    assert.equal(settled.requested_model, 'gpt-6-luna');
+    assert.equal(settled.reasoning_effort, 'max');
+    assert.equal(settled.fallback_evidence, null);
+    assert.equal(settled.inference_completed, false);
+  }
 });
 test('native rerouting and configuration mutation invalidate completion', async (t) => {
   const root = project(t);
@@ -192,7 +216,7 @@ test('signed receipt tampering and post-completion configuration changes are rej
   const path = join(root, completed.receipt_path),
     source = readFileSync(path, 'utf8');
   const forged = JSON.parse(source);
-  forged.confirmed_model = 'gpt-6-luna';
+  forged.confirmed_model = 'gpt-5.6-terra';
   writeFileSync(path, JSON.stringify(forged));
   assert.throws(() => readInvocation(root, completed.id), /signature/);
   writeFileSync(path, source);
@@ -200,6 +224,17 @@ test('signed receipt tampering and post-completion configuration changes are rej
   assert.match(routingProblems(root, 'reviewer', completed.id).join(' '), /configuration changed/);
   assert.ok(existsSync(join(root, '.verythinker/native/trust.json')));
 });
+test('legacy-policy resume rejects before interrupting a live invocation', async (t) => {
+  const root = project(t), native = bridge('hang');
+  const running = await native.start(root, { role: 'manager', prompt: 'Keep an existing invocation running.' });
+  const path = join(root, running.receipt_path), before = readFileSync(path, 'utf8');
+  writeFileSync(join(root, '.verythinker/routing.json'), JSON.stringify(priorDefaultRoutingPolicy(), null, 2) + '\n');
+  await assert.rejects(native.resume(root, running.id), /current Luna\/max routing policy/);
+  assert.equal(readFileSync(path, 'utf8'), before);
+  assert.equal(readInvocation(root, running.id).state, 'running');
+  assert.doesNotThrow(() => process.kill(running.server_pid, 0));
+});
+
 test('resume creates a new receipt and preserves the interrupted invocation', async (t) => {
   const root = project(t),
     native = bridge();

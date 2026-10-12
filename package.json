@@ -1,6 +1,6 @@
 {
   "name": "verythinker",
-  "version": "0.1.0-alpha.3.1",
+  "version": "0.1.0-alpha.3.2",
   "description": "Portable engineering workflows, traceability, and project knowledge for native AI agents.",
   "type": "module",
   "bin": {

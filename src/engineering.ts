@@ -80,7 +80,7 @@ function authoredRoutingProblems(
   try {
     const receipt = readInvocation(root, id);
     if (!expected[record.meta.type]!.includes(receipt.role))
-      return [`${record.meta.id} was not authored by the required Sol role.`];
+      return [`${record.meta.id} was not authored by the required strategic role.`];
     return routingProblems(root, receipt.role, id, {
       ...invocationBinding(record),
       ...(workflowId ? { workflow_id: workflowId } : {}),
@@ -103,27 +103,27 @@ function escalationProblems(root: string, task: ProjectRecord): string[] {
   const errors: string[] = [];
   const reason = task.meta.data.escalation_reason;
   if (typeof reason !== 'string' || reason.trim().length < 24)
-    errors.push('Repeated failure requires substantive Sol diagnosis and reassessment.');
+    errors.push('Repeated failure requires substantive strategic diagnosis and reassessment.');
   if (
     task.meta.data.escalation_attempt !== attempts ||
     task.meta.data.escalation_feedback_sha256 !== hash(String(task.meta.data.feedback ?? ''))
   )
-    errors.push('Sol reassessment must cover the current repair attempt and feedback.');
+    errors.push('strategic reassessment must cover the current repair attempt and feedback.');
   const id = task.meta.data.escalation_invocation_id;
   if (typeof id !== 'string')
-    return [...errors, 'Repeated failure needs a confirmed Sol reassessment receipt.'];
+    return [...errors, 'Repeated failure needs a confirmed strategic reassessment receipt.'];
   try {
     const receipt = readInvocation(root, id);
     if (!['manager', 'architect', 'component-owner'].includes(receipt.role))
-      errors.push('Only a Sol coordinator or designer can diagnose repeated failure.');
+      errors.push('Only a strategic coordinator or designer can diagnose repeated failure.');
     else errors.push(...routingProblems(root, receipt.role, id, invocationBinding(task)));
     if (
       typeof task.meta.data.repair_requested_at === 'string' &&
       Date.parse(receipt.updated_at) < Date.parse(task.meta.data.repair_requested_at)
     )
-      errors.push('Sol reassessment predates the latest repair request.');
+      errors.push('strategic reassessment predates the latest repair request.');
   } catch (error) {
-    errors.push(`Sol reassessment receipt cannot be verified: ${String(error)}`);
+    errors.push(`strategic reassessment receipt cannot be verified: ${String(error)}`);
   }
   return errors;
 }
@@ -951,7 +951,7 @@ export function verify(
         if (!hasReview(root, check, records))
           add(
             'missing-verification-plan-review',
-            `Verification plan needs current Sol independent review: ${check.meta.id}`,
+            `Verification plan needs current strategic independent review: ${check.meta.id}`,
           );
       if (['verified', 'accepted'].includes(gate))
         for (const problem of routingProblems(
@@ -1021,7 +1021,7 @@ function assertDispatchReadiness(
 ): void {
   if (readRoutingPolicy(root) && !strictRecord(root, task))
     throw new Error(
-      'Pending legacy work requires alpha.3 migration and Sol reassessment before dispatch.',
+      'Pending legacy work requires alpha.3 migration and strategic reassessment before dispatch.',
     );
   const report = verify(root, task.meta.id, strictExecution(root, task) ? 'design-ready' : 'ready');
   const recovered = recoveryInvocationId
@@ -1624,7 +1624,7 @@ function collectVerification(
       ...verifyFrozenRecipe(root, task),
     ];
     if (!hasCurrentReview(root, id))
-      errors.push('The verification procedure requires current Sol independent review.');
+      errors.push('The verification procedure requires current strategic independent review.');
     if (errors.length) throw new Error(errors.join('\n'));
   }
   const records = loadRecords(root);
@@ -1856,8 +1856,10 @@ export function contextPacket(root: string, id: string, maxChars = 18000): unkno
         ? {
             receipt_required: true,
             role: task.meta.owner,
-            strong_model: 'gpt-6.1-sol',
-            worker_models: ['gpt-6-luna', 'gpt-5.6-terra'],
+            strong_model: readRoutingPolicy(root)?.strong_model,
+            strong_effort: readRoutingPolicy(root)?.strong_effort,
+            worker_models: readRoutingPolicy(root)?.worker_models,
+            worker_effort: readRoutingPolicy(root)?.worker_effort,
             observation:
               'Native acknowledgment and successful inference are validated independently of agent-written strings.',
           }

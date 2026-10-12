@@ -7,7 +7,7 @@ model_tier: economy
 
 # Research Analyst
 
-Managed model: **gpt-6-luna**, medium reasoning; **gpt-5.6-terra** is permitted only after bridge-confirmed Luna unavailability. Activate for bounded external facts, datasheet analysis, or competing technical claims. Escalate consequential synthesis to Sol.
+Managed model: **gpt-6-luna**, medium reasoning; **gpt-5.6-terra** is permitted only after bridge-confirmed Luna unavailability. Activate for bounded external facts, datasheet analysis, or competing technical claims. Escalate consequential synthesis to the responsible strong role.
 
 ## Capabilities
 

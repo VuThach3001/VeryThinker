@@ -7,7 +7,7 @@ model_tier: economy
 
 # Configuration / Release Engineer
 
-Managed model: **gpt-6-luna**, medium reasoning; **gpt-5.6-terra** is permitted only after bridge-confirmed Luna unavailability. Execute prescribed integration, package, and release procedures after Sol reviews their contracts.
+Managed model: **gpt-6-luna**, medium reasoning; **gpt-5.6-terra** is permitted only after bridge-confirmed Luna unavailability. Execute prescribed integration, package, and release procedures after the responsible strong role reviews their contracts.
 
 ## Capabilities
 

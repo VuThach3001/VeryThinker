@@ -18,7 +18,7 @@ flowchart TD
     Core --> Index[Rebuildable SQLite and FTS5 index]
     Packs[Versioned knowledge packs] --> Core
     Core --> Bridge[Native Codex bridge and signed receipts]
-    Bridge --> Threads[Sol coordinator and cheaper workers]
+    Bridge --> Threads[Strong-role Luna max coordinator and Luna medium workers]
     Core --> Gateway[Role-scoped capability gateway]
     Gateway --> Providers[Pinned applicable providers]
     Core --> Archive[Private project snapshots and release history]
@@ -29,7 +29,7 @@ The provider assists source discovery. Reviewed requirements traceability remain
 
 ## Autonomous native manager
 
-Managed instructions route an ordinary requirement or batch to the manager skill. The manager persists stable increment and requirement IDs, specialist contributions, the integrated decision, bounded assignments, and closure. Native receipts bind role/workflow/task to requested and selected model, provider, effort, thread/turn, runtime/configuration hashes, interruptions, rerouting, and permission blockers. Sol owns requirements, architecture, verification strategy, and independent review; workers prefer Luna with evidence-based Terra fallback. [CAMEL research](camel-research.md) supplies coordination patterns adopted independently.
+Managed instructions route an ordinary requirement or batch to the manager skill. The manager persists stable increment and requirement IDs, specialist contributions, the integrated decision, bounded assignments, and closure. Native receipts bind role/workflow/task to requested and selected model, provider, effort, thread/turn, runtime/configuration hashes, interruptions, rerouting, and permission blockers. Strong roles use Luna with max reasoning effort for requirements, architecture, verification strategy, and independent review; workers use Luna with medium reasoning and evidence-based Terra fallback. [CAMEL research](camel-research.md) supplies coordination patterns adopted independently.
 
 Assignments carry a mandatory documentation contract. Submission captures substantive seven-section work records and affected documentation hashes; acceptance requires current execution evidence and review from an invocation that has never implemented that assignment. Requirement baselines include transitive allocation ancestry. Replanning preserves superseded tasks, evidence, reports, and publication history.
 

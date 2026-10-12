@@ -69,14 +69,14 @@ function validationFixture(work, role, state = 'completed', taskId = null) {
     prior_invocation_id: null,
     input_text: 'FABRICATED UNIT VALIDATION FIXTURE; no native account or inference.',
     input_sha256: hash('FABRICATED UNIT VALIDATION FIXTURE'),
-    requested_model: strong ? 'gpt-6.1-sol' : 'gpt-6-luna',
-    confirmed_model: strong ? 'gpt-6.1-sol' : 'gpt-6-luna',
+    requested_model: 'gpt-6-luna',
+    confirmed_model: 'gpt-6-luna',
     model_provider: 'fabricated-unit-provider',
     native_sandbox: strong ? 'readOnly' : 'workspaceWrite',
     native_tool_scope: [],
     gateway_policy_sha256: null,
-    reasoning_effort: strong ? 'high' : 'medium',
-    confirmed_reasoning_effort: strong ? 'high' : 'medium',
+    reasoning_effort: strong ? 'max' : 'medium',
+    confirmed_reasoning_effort: strong ? 'max' : 'medium',
     client_version: '0.162.1',
     runtime_integrity: integrity,
     protocol_sha256: protocol,
@@ -199,7 +199,7 @@ test('strict dispatch requires reviewed design and a resumed invocation rechecks
   assert.equal(getRecord(root, task.meta.id).meta.data.invocation_id, worker.id);
 });
 
-test('repeated repairs require a completed Sol diagnosis covering the current feedback', (t) => {
+test('repeated repairs require a completed strategic diagnosis covering the current feedback', (t) => {
   const work = project(t),
     { root, task } = work;
   const reviewer = validationFixture(work, 'reviewer');
@@ -227,7 +227,7 @@ test('repeated repairs require a completed Sol diagnosis covering the current fe
   const next = validationFixture(work, 'developer', 'running', task.meta.id);
   assert.throws(
     () => startTask(root, task.meta.id, undefined, undefined, next.id),
-    /Sol reassessment|Sol diagnosis/,
+    /strategic reassessment|strategic diagnosis/,
   );
   const diagnosis = validationFixture(work, 'architect');
   const blocked = getRecord(root, task.meta.id);
@@ -245,7 +245,7 @@ test('repeated repairs require a completed Sol diagnosis covering the current fe
     'in-progress',
   );
   updateRecord(root, task.meta.id, {
-    data: { feedback: 'A different failure requires fresh Sol diagnosis.' },
+    data: { feedback: 'A different failure requires fresh strategic diagnosis.' },
   });
   assert.ok(
     verify(root, task.meta.id, 'ready').findings.some(
