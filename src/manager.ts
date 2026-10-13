@@ -12,6 +12,7 @@ import {
   updateRecord,
   withLock,
   withOperationLock,
+  withRecordReadSnapshot,
 } from './storage.js';
 import {
   acceptTask,
@@ -26,6 +27,8 @@ import { prepareContribution } from './packs.js';
 import { submitContribution } from './contributions.js';
 import type { ProjectRecord } from './types.js';
 import { readRoutingPolicy, routingProblems, assertRouting, readInvocation } from './routing.js';
+import { fastGrantProblems } from './fast-grants.js';
+import { validateFastSelection, type FastSelection, type PolicyRequest } from './fast-policy.js';
 import {
   readArchivePolicy,
   prepareArchive,
@@ -42,6 +45,7 @@ export interface WorkflowInput {
   invocation_id?: string;
   request_id?: string;
   change_type?: 'breaking' | 'breaking-change' | 'feature' | 'fix';
+  execution_policy?: PolicyRequest;
 }
 
 /** Strict tool clients may send explicit placeholders for every optional field. */
@@ -186,6 +190,7 @@ function beginWorkflowClaimed(root: string, input: WorkflowInput): ProjectRecord
         task_ids: [],
         open_questions: [],
         created_by: 'natural-language-requirement',
+        ...(input.execution_policy ? { execution_policy_requested: input.execution_policy } : {}),
       },
       body: `# Objective\n${requirement}\n\n# Resumption\nRead manager_status for the next action.\n`,
     });
@@ -436,10 +441,21 @@ function decideWorkflowClaimed(
   if (strings(parent.meta.data.open_questions).length)
     throw new Error('Resolve recorded product questions before deciding execution.');
   const participants = currentDiscussions(root, id).filter((r) => r.meta.owner !== 'manager');
-  if (
+  const fast = parent.meta.data.execution_policy === 'fast';
+  if (fast) {
+    validateFastSelection(root, parent.meta.data.execution_policy_selection as FastSelection);
+    const planner = readInvocation(root, String(parent.meta.data.invocation_id));
+    const errors = fastGrantProblems(root, planner, { historical: true });
+    if (planner.fast_grant?.stage !== 'planner' || planner.state !== 'completed' || !planner.inference_completed || errors.length)
+      throw new Error(`Fast decision needs its completed confirmed planner: ${errors.join(' ')}`);
+    const submitted = parent.meta.data.fast_plan as { task_ids?: string[] } | undefined;
+    if (!submitted || JSON.stringify(submitted.task_ids) !== JSON.stringify(input.task_ids) || input.task_ids.length !== 1)
+      throw new Error('Fast decision must use its frozen single-task planning submission.');
+  }
+  if (!fast && (
     new Set(participants.map((r) => r.meta.owner)).size < 2 ||
     new Set(participants.map((r) => r.meta.data.invocation_id)).size < 2
-  )
+  ))
     throw new Error(
       'Execution needs current contributions from two specialist roles in separate invocations.',
     );
@@ -603,10 +619,13 @@ function decisionProblems(root: string, parent: ProjectRecord): string[] {
   return problems;
 }
 export function workflowStatus(root: string, id?: string): unknown {
+  return withRecordReadSnapshot(root, () => workflowStatusSnapshot(root, id));
+}
+function workflowStatusSnapshot(root: string, id?: string): unknown {
   if (!id)
     return loadRecords(root)
       .filter((r) => r.meta.data.kind === 'manager-workflow')
-      .map((r) => workflowStatus(root, r.meta.id));
+      .map((r) => workflowStatusSnapshot(root, r.meta.id));
   const parent = workflow(root, id);
   let recoveredArchive: ReturnType<typeof acceptedArchiveForWorkflow> = null;
   let archiveError: string | null = null;

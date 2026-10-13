@@ -55,7 +55,9 @@ import {
 } from './archives.js';
 import { dispatchKnowledgeCommand } from './knowledge-cli.js';
 import { managedRun, type ManagedRunInput } from './managed.js';
-import { workspaceWrite } from './workspace.js';
+import { workflowProgress } from './progress.js';
+import { waitFastWorkflow, fastControllerActive } from './fast-controller.js';
+import { workspaceWrite, workspaceReplace } from './workspace.js';
 import { recordTypes, type Gate, type Platform, type Profile, type RecordType } from './types.js';
 
 const help = `VeryThinker engineering workflow (Node.js 24+)
@@ -135,6 +137,7 @@ async function main(): Promise<void> {
       'destination',
       'disposition',
       'wait-ms',
+      'execution-policy',
     ].map((k) => [k, { type: 'string' }]),
   );
   for (const key of ['json', 'help', 'version', 'impact', 'generalization-review'])
@@ -228,6 +231,7 @@ async function main(): Promise<void> {
                 }),
           ...(o.title ? { title: String(o.title) } : {}),
           ...(o['request-id'] ? { request_id: String(o['request-id']) } : {}),
+          ...(o['execution-policy'] ? { execution_policy: String(o['execution-policy']) as never } : typeof input.execution_policy === 'string' ? { execution_policy: input.execution_policy as never } : {}),
           ...(typeof input.change_type === 'string'
             ? { change_type: input.change_type as never }
             : {}),
@@ -238,9 +242,22 @@ async function main(): Promise<void> {
             : await managedRun(root, specification as ManagedRunInput);
         if (action === 'run') {
           const managed = result as Awaited<ReturnType<typeof managedRun>>;
+          const workflowId = (managed.workflow as { workflow_id?: string })?.workflow_id;
+          if (workflowId && getRecord(root, workflowId).meta.data.execution_policy === 'fast') {
+            let progress;
+            do { progress = await waitFastWorkflow(root, workflowId, 10000); }
+            while (fastControllerActive(root, workflowId) || !['completed', 'reassessment-required'].includes(String(getRecord(root, workflowId).meta.data.fast_stage)));
+            const saved = getRecord(root, workflowId);
+            if (saved.meta.data.execution_policy === 'fast' || saved.meta.data.fast_stage === 'completed') {
+              result = { ...managed, workflow: progress, status: workflowStatus(root, workflowId) };
+              break;
+            }
+            const latest = saved.meta.data.native_manager_attempt_id;
+            if (typeof latest === 'string') managed.invocation = nativeStatus(root, latest) as typeof managed.invocation;
+          }
           let invocation = managed.invocation;
           while (invocation && ['starting', 'running'].includes(invocation.state))
-            invocation = await waitNative(root, invocation.id, 60000);
+            invocation = await waitNative(root, invocation.id, 10000);
           if (invocation)
             result = {
               ...managed,
@@ -249,7 +266,8 @@ async function main(): Promise<void> {
             };
           if (invocation?.state === 'waiting-native-permission') await shutdownNative();
         }
-      } else if (action === 'status') result = workflowStatus(root, id);
+      } else if (action === 'progress') result = workflowProgress(root, id);
+      else if (action === 'status') result = workflowStatus(root, id);
       else if (action === 'discuss')
         result = discussWorkflow(root, needed(id, 'Workflow ID'), data() as never);
       else if (action === 'decide')
@@ -528,7 +546,8 @@ async function main(): Promise<void> {
     case 'workspace': {
       if (action !== 'write') throw new Error('Use workspace write --data JSON.');
       const input = data();
-      if (typeof input.content !== 'string') throw new Error('workspace content must be a string.');
+      if ((input.content != null) === (input.replacement != null))
+        throw new Error('Supply workspace content or replacement, rather than both or neither.');
       if (
         !Object.hasOwn(input, 'expected_hash') ||
         (input.expected_hash !== null && typeof input.expected_hash !== 'string')
@@ -536,17 +555,20 @@ async function main(): Promise<void> {
         throw new Error(
           'workspace expected_hash must be a SHA-256 string, or null for a new file.',
         );
-      result = workspaceWrite(root, {
+      const writeInput = {
         task_id: needed(input.task_id, 'workspace task_id'),
         workflow_id: needed(input.workflow_id, 'workspace workflow_id'),
         invocation_id: needed(input.invocation_id ?? o.invocation, 'workspace invocation_id'),
         path: needed(input.path, 'workspace path'),
-        content: input.content,
         expected_hash: input.expected_hash,
-        ...(input.operation_id !== undefined
+        ...(input.operation_id != null
           ? { operation_id: needed(input.operation_id, 'workspace operation_id') }
           : {}),
-      });
+      };
+      if (input.replacement != null) {
+        if (typeof input.expected_hash !== 'string') throw new Error('Literal replacement requires an existing file hash.');
+        result = workspaceReplace(root, { ...writeInput, expected_hash: input.expected_hash, replacement: input.replacement } as never);
+      } else result = workspaceWrite(root, { ...writeInput, content: input.content } as never);
       break;
     }
     case 'archive':

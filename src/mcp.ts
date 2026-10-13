@@ -69,6 +69,10 @@ import {
   invokeCapability,
   closeCapabilitySessions,
 } from './tools.js';
+import { workflowProgress } from './progress.js';
+import { fastResponsibility } from './fast-grants.js';
+import { submitFastPlan, waitFastWorkflow } from './fast-controller.js';
+import type { FastGrantTarget } from './fast-grants.js';
 import {
   prepareArchive,
   publishArchive,
@@ -92,7 +96,7 @@ import {
   type RecipeInput,
 } from './recipes.js';
 import { managedRun, type ManagedRunInput } from './managed.js';
-import { workspaceWrite } from './workspace.js';
+import { workspaceWrite, workspaceReplace } from './workspace.js';
 import { validateEvidenceInputs, type EvidenceInputSnapshot } from './evidence-inputs.js';
 
 const cornellNoteSchema = z
@@ -413,8 +417,24 @@ function operationBinding(
   root: string,
   operation: string,
   input: any,
-): { workflow_id?: string; task_id?: string } {
-  const result: { workflow_id?: string; task_id?: string } = {};
+): FastGrantTarget {
+  const result: FastGrantTarget = { operation };
+  if (typeof input.path === 'string') result.path = input.path;
+  if (operation === 'record_create') {
+    result.record_type = input.type;
+    result.record_data = input.data ?? {};
+    result.record_owner = input.owner;
+    result.links = input.links ?? [];
+  }
+  if (operation === 'record_update') result.record_data = input.data ?? {};
+  if (operation === 'record_update') result.record_id = input.id;
+  if (operation === 'fast_plan_submit') result.task_ids = input.task_ids;
+  if (operation === 'recipe_run') result.recipe_instance_id = input.id;
+  if (operation === 'note_create') {
+    const note = input.note ?? input;
+    result.paths = [note.path, note.practice?.exercise_path, note.practice?.answer_path, note.practice?.solution_path].filter((path): path is string => typeof path === 'string');
+  }
+  if (['check_run', 'check_inspect'].includes(operation)) result.check_id = input.id;
   if (typeof input.workflow_id === 'string') result.workflow_id = input.workflow_id;
   if (typeof input.task_id === 'string' || typeof input.task === 'string')
     result.task_id = input.task_id ?? input.task;
@@ -425,6 +445,7 @@ function operationBinding(
     !operation.startsWith('recipe_resolve')
   ) {
     const record = getRecord(root, input.id);
+    result.record_id = record.meta.id;
     if (record.meta.type === 'task') result.task_id = record.meta.id;
     if (typeof record.meta.data.workflow_id === 'string')
       result.workflow_id = record.meta.data.workflow_id;
@@ -445,6 +466,7 @@ function scopedRecord(
 function authoredData(
   receipt: NativeReceipt | null,
   data: Record<string, unknown> = {},
+  responsibility?: string | null,
 ): Record<string, unknown> {
   if (!receipt) return data;
   return {
@@ -452,6 +474,7 @@ function authoredData(
     invocation_id: receipt.id,
     author_invocation_id: receipt.id,
     invocation_role: receipt.role,
+    ...(responsibility ? { performed_responsibility: responsibility } : {}),
     routing_required: true,
     ...(receipt.workflow_id ? { workflow_id: receipt.workflow_id } : {}),
     ...(receipt.task_id ? { task_id: receipt.task_id } : {}),
@@ -698,6 +721,7 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
       title: z.string().nullable().optional(),
       request_id: z.string().nullable().optional(),
       change_type: z.enum(['breaking', 'feature', 'fix']).nullable().optional(),
+      execution_policy: z.enum(['auto', 'fast', 'standard', 'extended']).nullable().optional(),
       providers: z
         .array(z.enum(['codegraph', 'context7', 'playwright']))
         .nullable()
@@ -754,6 +778,23 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
     },
     (i) => decideWorkflow(root, i.workflow_id, i),
     false,
+  );
+  tool(
+    'fast_plan_submit',
+    'Freeze one scoped Fast planning artifact after its assignment report. The core then performs independent plan review, production, final review and unchanged acceptance gates.',
+    { workflow_id: z.string(), task_ids: z.array(z.string()).length(1), summary: z.string(), rationale: z.string(), no_lesson_reason: z.string() },
+    (i) => {
+      const receipt = bound();
+      if (!receipt) throw new Error('Fast plan submission requires its invocation-bound planner.');
+      return submitFastPlan(root, i.workflow_id, receipt.id, i);
+    },
+    false,
+  );
+  tool(
+    'manager_progress',
+    'Read compact authoritative progress without reevaluating gates. Validation is not evaluated; this response cannot authorize acceptance.',
+    { workflow_id: z.string().optional() },
+    (i) => workflowProgress(root, i.workflow_id ?? bound()?.workflow_id ?? undefined),
   );
   tool(
     'manager_status',
@@ -864,7 +905,8 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
         throw new Error(
           'Reserved engineering state must be created through its dedicated core operation.',
         );
-      if (receipt && !canAuthor(receipt.role, i.type))
+      const responsibility = receipt ? fastResponsibility(root, receipt, i.type) : null;
+      if (receipt && !canAuthor(responsibility ?? receipt.role, i.type))
         throw new Error(`Role ${receipt.role} cannot author ${i.type} records.`);
       if (
         receipt &&
@@ -874,8 +916,8 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
       assertRecordPreview(root, i);
       return createRecord(root, {
         ...i,
-        ...(receipt ? { owner: i.type === 'task' ? i.owner : receipt.role } : {}),
-        data: i.type === 'task' ? taskAuthorData(receipt, i.data) : authoredData(receipt, i.data),
+        ...(receipt ? { owner: i.type === 'task' ? i.owner : responsibility ?? receipt.role } : {}),
+        data: i.type === 'task' ? taskAuthorData(receipt, i.data) : authoredData(receipt, i.data, responsibility),
       });
     },
     false,
@@ -932,7 +974,8 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
           );
         return updateRecord(root, i.id, { data: i.data });
       }
-      if (receipt && !canAuthor(receipt.role, record.meta.type))
+      const responsibility = receipt ? fastResponsibility(root, receipt, record.meta.type) : null;
+      if (receipt && !canAuthor(responsibility ?? receipt.role, record.meta.type))
         throw new Error(`Role ${receipt.role} cannot author ${record.meta.type} records.`);
       assertRecordPreview(root, { type: record.meta.type, links: i.links, data: i.data }, record);
       return updateRecord(
@@ -942,11 +985,11 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
           data:
             record.meta.type === 'task'
               ? taskAuthorData(receipt, i.data, record)
-              : authoredData(receipt, i.data),
+              : authoredData(receipt, i.data, responsibility),
           ...(record.meta.type === 'task' && i.owner !== undefined
             ? { owner: i.owner }
             : receipt && record.meta.type !== 'task'
-              ? { owner: receipt.role }
+              ? { owner: responsibility ?? receipt.role }
               : {}),
           ...(i.links !== undefined ? { links: i.links } : {}),
         },
@@ -1006,12 +1049,13 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
   );
   tool(
     'task_file_write',
-    'Create or replace an assigned UTF-8 implementation/documentation file using its current SHA-256 (null for a new file). Requires the running native Developer producer, reviewed task scope, and unchanged protected acceptance artifacts. Records immutable previous bytes and idempotent operation history; Cornell artifacts use note_create instead.',
+    'Edit assigned UTF-8 implementation/documentation using its current SHA-256. Prefer replacement:{before,after} for exactly one literal small edit; unrelated bytes are preserved by core. Supply content OR replacement, with unused fields omitted/null. Full content supports a new file with expected_hash:null. Requires the current native Developer, reviewed scope and unchanged protected artifacts. Retains immutable history and same-operation replay.',
     {
       task_id: z.string(),
       workflow_id: z.string().optional(),
       path: z.string().describe('Project-relative file inside the reviewed task allowed_paths.'),
-      content: z.string().describe('Complete UTF-8 replacement content, at most 128 KiB.'),
+      content: z.string().nullable().optional().describe('Complete UTF-8 content, at most 128 KiB; unused when replacement is supplied.'),
+      replacement: z.object({ before: z.string().min(1), after: z.string() }).nullable().optional().describe('Replace exactly one literal occurrence while preserving every unrelated byte. Requires an existing file and non-null expected_hash.'),
       expected_hash: z
         .string()
         .regex(/^[a-f0-9]{64}$/)
@@ -1022,6 +1066,7 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
       operation_id: z
         .string()
         .uuid()
+        .nullable()
         .optional()
         .describe(
           'Reuse this UUID and identical payload to recover an interrupted or lost-response write.',
@@ -1032,11 +1077,19 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
       if (!receipt)
         throw new Error('Task file writes require an invocation-bound native Developer session.');
       scopedRecord(root, receipt, i.task_id);
-      return workspaceWrite(root, {
+      const common = {
         ...i,
+        operation_id: i.operation_id ?? undefined,
         workflow_id: i.workflow_id ?? receipt.workflow_id ?? '',
         invocation_id: receipt.id,
-      });
+      };
+      if ((i.content != null) === (i.replacement != null))
+        throw new Error('Supply content or replacement, rather than both or neither.');
+      if (i.replacement != null) {
+        if (i.expected_hash === null) throw new Error('Literal replacement requires the current hash of an existing file.');
+        return workspaceReplace(root, { ...common, expected_hash: i.expected_hash, replacement: i.replacement });
+      }
+      return workspaceWrite(root, { ...common, content: i.content });
     },
     false,
   );

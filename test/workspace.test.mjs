@@ -9,7 +9,7 @@ import { initialize, createRecord, updateRecord, getRecord, hash, readConfig } f
 import { beginWorkflow } from '../dist/manager.js';
 import { ensureRoutingPolicy, canonicalJson, routingConfigurationHashes, strongRoles } from '../dist/routing.js';
 import { startTask, resumeTask, reviewRecord, verify } from '../dist/engineering.js';
-import { workspaceWrite, workspaceHistoryProblems, workspaceResumeOperations } from '../dist/workspace.js';
+import { workspaceWrite, workspaceReplace, workspaceHistoryProblems, workspaceResumeOperations } from '../dist/workspace.js';
 
 // Private FABRICATED signed validation objects test production guards only.
 // They demonstrate no account access or native inference; no fixture is packaged.
@@ -85,6 +85,9 @@ function fixture(t) {
   Object.assign(work, { requirement, task, design, check, worker });
   work.write = (patch = {}) => workspaceWrite(root, { task_id: task.meta.id, workflow_id: workflow.meta.id,
     invocation_id: worker.id, path: 'README.md', content: '# Interface\nSee docs for the demonstrated integer interface.\n',
+    expected_hash: hash(readFileSync(join(root, 'README.md'))), ...patch });
+  work.replace = (replacement, patch = {}) => workspaceReplace(root, { task_id: task.meta.id, workflow_id: workflow.meta.id,
+    invocation_id: worker.id, path: 'README.md', replacement,
     expected_hash: hash(readFileSync(join(root, 'README.md'))), ...patch });
   return work;
 }
@@ -332,6 +335,54 @@ test('interruption before task linkage recovers only an unchanged contract and a
   assert.ok(recovered.history_paths.includes(entry.handoff.record_path));
   assert.ok(recovered.history_paths.includes(entry.handoff.manifest_path));
   assert.deepEqual(workspaceHistoryProblems(work.root, updated), []);
+});
+
+test('literal replacement preserves unrelated bytes, CRLF and literal backslash-n sequences', (t) => {
+  const work = fixture(t);
+  const original = '# Interface\r\nKeep literal \\n marker. Original user documentation.\r\n';
+  writeFileSync(join(work.root, 'README.md'), original);
+  const result = work.replace({ before: 'Original user documentation.', after: 'Updated documentation.' });
+  assert.equal(result.replayed, false);
+  assert.equal(readFileSync(join(work.root, 'README.md'), 'utf8'),
+    '# Interface\r\nKeep literal \\n marker. Updated documentation.\r\n');
+});
+
+test('literal replacement rejects absent, repeated, stale, protected and escaping targets', (t) => {
+  const work = fixture(t);
+  assert.throws(() => work.replace({ before: 'not present', after: 'replacement' }), /exactly once; found 0/);
+  writeFileSync(join(work.root, 'README.md'), 'same same');
+  assert.throws(() => work.replace({ before: 'same', after: 'different' }), /exactly once; found 2/);
+  writeFileSync(join(work.root, 'README.md'), '# Interface\r\nOriginal user documentation.\r\n');
+  const staleHash = hash(readFileSync(join(work.root, 'README.md')));
+  writeFileSync(join(work.root, 'README.md'), '# Interface\r\nConcurrent user edit.\r\n');
+  assert.throws(() => work.replace({ before: 'Concurrent user edit.', after: 'replacement' }, { expected_hash: staleHash }), /File changed since it was read/);
+  createRecord(work.root, { type: 'knowledge', title: 'Protected README', data: { protected_files: { 'README.md': hash(readFileSync(join(work.root, 'README.md'))) } } });
+  assert.throws(() => work.replace({ before: 'Concurrent user edit.', after: 'replacement' }), /protected verification/);
+  assert.throws(() => work.replace({ before: 'Concurrent user edit.', after: 'replacement' }, { path: '../README.md' }), /canonical project-relative/);
+});
+
+test('literal replacement recovers lost responses from authenticated old bytes and rejects changed payloads', (t) => {
+  const work = fixture(t), operation_id = randomUUID();
+  const original = readFileSync(join(work.root, 'README.md'));
+  const expected_hash = hash(original);
+  const replacement = { before: 'Original user documentation.', after: 'Recovered documentation.' };
+  const originalRename = fs.renameSync;
+  fs.renameSync = (source, target) => {
+    if (resolve(target) === resolve(work.root, 'README.md')) {
+      const error = new Error('Injected unit-only filesystem failure'); error.code = 'EACCES'; throw error;
+    }
+    return originalRename(source, target);
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => work.replace(replacement, { operation_id, expected_hash }), /I\/O or optimistic-CAS/);
+  } finally { fs.renameSync = originalRename; syncBuiltinESMExports(); }
+  assert.deepEqual(readFileSync(join(work.root, 'README.md')), original);
+  assert.throws(() => work.replace({ ...replacement, after: 'Different payload.' }, { operation_id, expected_hash }), /original operation payload/);
+  const recovered = work.replace(replacement, { operation_id, expected_hash });
+  assert.equal(recovered.replayed, true);
+  assert.equal(readFileSync(join(work.root, 'README.md'), 'utf8'), '# Interface\r\nRecovered documentation.\r\n');
+  assert.deepEqual(readFileSync(join(work.root, recovered.history_paths.find((path) => path.endsWith('/previous.utf8')))), original);
 });
 
 test('compiler source operands stay editable while explicitly reviewed verification artifacts stay protected', (t) => {

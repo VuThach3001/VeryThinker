@@ -76,7 +76,26 @@ function retryWindowsFileOperation(action: () => void): void {
     }
   }
 }
+type ReadSnapshot = {
+  root: string;
+  config: ProjectConfig;
+  configBytes: Buffer;
+  records: ProjectRecord[];
+  recordBytes: Map<string, Buffer>;
+  sourceHash?: string;
+};
+const readSnapshots: ReadSnapshot[] = [];
+function activeReadSnapshot(root: string): ReadSnapshot | undefined {
+  const resolved = resolve(root);
+  return [...readSnapshots].reverse().find((snapshot) => snapshot.root === resolved);
+}
+function assertNoReadSnapshotWrite(root: string): void {
+  if (activeReadSnapshot(root))
+    throw new Error('Authoritative writes are prohibited inside a record read snapshot.');
+}
 export function readConfig(root: string): ProjectConfig {
+  const snapshot = activeReadSnapshot(root);
+  if (snapshot) return deserialize(serializeSnapshot(snapshot.config)) as ProjectConfig;
   const config = JSON.parse(
     readFileSync(safePath(root, '.verythinker/config.json'), 'utf8'),
   ) as ProjectConfig;
@@ -119,6 +138,7 @@ function validateConfig(config: ProjectConfig): void {
   }
 }
 export function initialize(root: string, options: Partial<ProjectConfig> = {}): ProjectConfig {
+  assertNoReadSnapshotWrite(root);
   root = resolve(root);
   mkdirSync(root, { recursive: true });
   const configPath = safePath(root, '.verythinker/config.json');
@@ -389,6 +409,8 @@ function parseRecordBytes(bytes: Buffer, path: string): { meta: Metadata; body: 
   return result;
 }
 export function loadRecords(root: string): ProjectRecord[] {
+  const snapshot = activeReadSnapshot(root);
+  if (snapshot) return deserialize(serializeSnapshot(snapshot.records)) as ProjectRecord[];
   readConfig(root);
   const seen = new Set<string>();
   return filesUnder(root, '.verythinker/records')
@@ -400,7 +422,69 @@ export function loadRecords(root: string): ProjectRecord[] {
       return { meta, body, path: path.replaceAll('\\', '/') };
     });
 }
+function readAuthoritativeSnapshot(root: string): ReadSnapshot {
+  const configPath = safePath(root, '.verythinker/config.json');
+  const configBytes = readFileSync(configPath);
+  const config = JSON.parse(configBytes.toString('utf8')) as ProjectConfig;
+  validateConfig(config);
+  const recordBytes = new Map<string, Buffer>();
+  const records: ProjectRecord[] = [];
+  const seen = new Set<string>();
+  for (const path of filesUnder(root, '.verythinker/records').filter((p) => p.endsWith('.md'))) {
+    const bytes = readFileSync(safePath(root, path));
+    const { meta, body } = parseRecordBytes(bytes, path);
+    if (seen.has(meta.id)) throw new Error(`Duplicate record ID: ${meta.id}`);
+    seen.add(meta.id);
+    recordBytes.set(path, Buffer.from(bytes));
+    records.push({ meta, body, path: path.replaceAll('\\', '/') });
+  }
+  return {
+    root: resolve(root),
+    config,
+    configBytes: Buffer.from(configBytes),
+    records,
+    recordBytes,
+  };
+}
+function assertSameAuthoritativeSnapshot(before: ReadSnapshot, root: string): void {
+  const after = readAuthoritativeSnapshot(root);
+  if (
+    !before.configBytes.equals(after.configBytes) ||
+    before.recordBytes.size !== after.recordBytes.size
+  )
+    throw new Error('Authoritative records or configuration changed during the read snapshot.');
+  for (const [path, bytes] of before.recordBytes) {
+    const current = after.recordBytes.get(path);
+    if (!current || !bytes.equals(current))
+      throw new Error('Authoritative records or configuration changed during the read snapshot.');
+  }
+}
+/** Run a synchronous read operation against one fresh, isolated record/configuration view. */
+export function withRecordReadSnapshot<T>(root: string, action: () => T): T {
+  const snapshot = readAuthoritativeSnapshot(root);
+  readSnapshots.push(snapshot);
+  try {
+    const result = action();
+    if (
+      result &&
+      (typeof result === 'object' || typeof result === 'function') &&
+      typeof (result as { then?: unknown }).then === 'function'
+    )
+      throw new Error('Record read snapshot callbacks must be synchronous.');
+    assertSameAuthoritativeSnapshot(snapshot, root);
+    return result;
+  } finally {
+    const index = readSnapshots.lastIndexOf(snapshot);
+    if (index >= 0) readSnapshots.splice(index, 1);
+  }
+}
 export function getRecord(root: string, id: string): ProjectRecord {
+  const snapshot = activeReadSnapshot(root);
+  if (snapshot) {
+    const record = snapshot.records.find((item) => item.meta.id === id);
+    if (!record) throw new Error(`Record not found: ${id}`);
+    return deserialize(serializeSnapshot(record)) as ProjectRecord;
+  }
   const record = loadRecords(root).find((r) => r.meta.id === id);
   if (!record) throw new Error(`Record not found: ${id}`);
   return record;
@@ -423,6 +507,7 @@ const prefixes: Record<string, string> = {
   knowledge: 'KNW',
 };
 export function createRecord(root: string, input: CreateRecord): ProjectRecord {
+  assertNoReadSnapshotWrite(root);
   return withLock(root, () => {
     const config = readConfig(root);
     const records = loadRecords(root);
@@ -498,6 +583,7 @@ export function updateRecord(
   body?: string,
   precondition?: (record: ProjectRecord) => void,
 ): ProjectRecord {
+  assertNoReadSnapshotWrite(root);
   return withLock(root, () => {
     const record = getRecord(root, id);
     precondition?.(record);
@@ -532,6 +618,7 @@ export function saveStatus(
   status: Metadata['status'],
   precondition?: () => void,
 ): ProjectRecord {
+  assertNoReadSnapshotWrite(root);
   return withLock(root, () => {
     precondition?.();
     const record = getRecord(root, id);
@@ -554,6 +641,14 @@ export function appendEvent(root: string, run: string, event: Record<string, unk
   return relative(root, path).replaceAll('\\', '/');
 }
 export function sourceHash(root: string): string {
+  const snapshot = activeReadSnapshot(root);
+  if (snapshot) {
+    if (snapshot.sourceHash === undefined)
+      snapshot.sourceHash = hash(
+        [...snapshot.recordBytes].map(([path, bytes]) => `${path}:${hash(bytes)}`).join('\n'),
+      );
+    return snapshot.sourceHash;
+  }
   return hash(
     filesUnder(root, '.verythinker/records')
       .filter((p) => p.endsWith('.md'))

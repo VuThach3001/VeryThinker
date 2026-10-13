@@ -1,6 +1,7 @@
 import { createPublicKey, verify } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { ensureNativeTrustFiles } from './trust.js';
+import { hasFastResponsibility, fastGrantProblems } from './fast-grants.js';
 import {
   atomicWrite,
   getRecord,
@@ -66,6 +67,8 @@ export interface NativeReceipt {
   workflow_id: string | null;
   task_id: string | null;
   request_id: string | null;
+  /** Core-issued, immutable stage authority. Historical receipts omit this field. */
+  fast_grant?: FastStageGrant;
   prior_invocation_id: string | null;
   input_text: string;
   input_sha256: string;
@@ -98,6 +101,24 @@ export interface NativeReceipt {
   updated_at: string;
   key_id: string;
   signature: string;
+}
+export interface FastStageGrant {
+  schema_version: 1;
+  grant_id: string;
+  stage: 'planner' | 'producer';
+  phase: 'planning' | 'production';
+  invocation_id: string;
+  owner_pid: number;
+  workflow_id: string;
+  task_id: string | null;
+  allowed_operations: string[];
+  allowed_paths: string[];
+  protected_check_ids: string[];
+  configuration_hashes: Record<string, string>;
+  selection_sha256: string;
+  plan_sha256: string;
+  issued_at: string;
+  expires_at: string;
 }
 export interface RoutingBinding {
   workflow_id?: string;
@@ -350,8 +371,12 @@ export function routingProblems(
   } catch {
     errors.push('Pinned native runtime lock is unavailable.');
   }
-  if (receipt.role !== role)
+  if (
+    receipt.role !== role &&
+    !hasFastResponsibility(root, receipt, role)
+  )
     errors.push('Native invocation belongs to a different engineering role.');
+  if (receipt.fast_grant) errors.push(...fastGrantProblems(root, receipt, { historical: true }));
   errors.push(...routingBindingProblems(root, receipt, binding));
   if (
     !policy.models.includes(receipt.requested_model) ||

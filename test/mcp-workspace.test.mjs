@@ -49,13 +49,18 @@ test('workspace MCP discovery declares CAS, task scope and recovery without call
   assert.equal(tool.annotations.readOnlyHint, false);
   assert.equal(tool.annotations.openWorldHint, false);
   const schema = tool.inputSchema;
-  assert.deepEqual([...schema.required].sort(), ['content', 'expected_hash', 'path', 'task_id']);
-  assert.equal(schema.properties.content.type, 'string');
-  assert.equal(schema.properties.operation_id.format, 'uuid');
+  assert.deepEqual([...schema.required].sort(), ['expected_hash', 'path', 'task_id']);
+  assert.match(JSON.stringify(schema.properties.content), /string/);
+  assert.match(JSON.stringify(schema.properties.content), /null/);
+  const replacement = schema.properties.replacement.anyOf?.find(item => item.type === 'object') ?? schema.properties.replacement;
+  assert.deepEqual([...replacement.required].sort(), ['after', 'before']);
+  assert.equal(replacement.properties.before.minLength, 1);
+  assert.match(JSON.stringify(schema.properties.operation_id), /uuid/);
+  assert.match(JSON.stringify(schema.properties.operation_id), /null/);
   assert.match(JSON.stringify(schema.properties.expected_hash), /null/);
   assert.equal(schema.properties.invocation_id, undefined);
   assert.equal(schema.properties.confirmed_model, undefined);
-  assert.match(tool.description, /previous bytes/);
+  assert.match(tool.description, /immutable history/);
   assert.ok(roleCapabilities('developer').operations.includes('task_file_write'));
   for (const role of [
     'manager',

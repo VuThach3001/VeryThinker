@@ -51,6 +51,11 @@ export interface WorkspaceWriteResult {
   task_revision: number;
   replayed: boolean;
 }
+export interface WorkspaceReplaceInput extends Omit<WorkspaceWriteInput, 'content' | 'expected_hash'> {
+  /** Replacement is permitted only against existing bytes observed at expected_hash. */
+  expected_hash: string;
+  replacement: { before: string; after: string };
+}
 interface WriteIntent {
   schema_version: 1;
   operation_id: string;
@@ -532,4 +537,54 @@ export function workspaceWrite(root: string, input: WorkspaceWriteInput): Worksp
         sha256: intent.sha256, history_paths: Object.keys(entry.history_hashes), task_revision: task.meta.revision, replayed };
     }),
   );
+}
+
+/** Replace one exact literal occurrence while preserving every other source byte. */
+export function workspaceReplace(root: string, input: WorkspaceReplaceInput): WorkspaceWriteResult {
+  ordinaryPath(input.path);
+  if (!input || typeof input !== 'object' || !input.replacement ||
+      typeof input.replacement.before !== 'string' || !input.replacement.before ||
+      typeof input.replacement.after !== 'string' || binaryControl.test(input.replacement.before) ||
+      binaryControl.test(input.replacement.after))
+    throw new Error('Literal replacement requires non-empty UTF-8 before text and UTF-8 after text.');
+  if (typeof input.expected_hash !== 'string' || !digest.test(input.expected_hash))
+    throw new Error('Literal replacement requires the current SHA-256 of an existing file.');
+  const operationId = input.operation_id ?? randomUUID();
+  if (!uuid.test(operationId)) throw new Error('File-write operation_id must be a lowercase UUID.');
+  // Run the same live task, receipt, path, verification, and protected-file gates before reading source bytes.
+  const task = taskFor(root, {
+    task_id: input.task_id, workflow_id: input.workflow_id, invocation_id: input.invocation_id,
+    path: input.path, content: '', expected_hash: input.expected_hash, operation_id: operationId,
+  }, operationId);
+  const historyProblems = workspaceHistoryProblems(root, task, operationId);
+  if (historyProblems.length) throw new Error(historyProblems.join('\n'));
+  const base = historyBase(task.meta.id, operationId);
+  const intentPath = physical(root, `${base}/intent.json`);
+  let original: Buffer | null;
+  if (existsSync(intentPath)) {
+    const intent = JSON.parse(readFileSync(intentPath, 'utf8')) as WriteIntent;
+    if (intent.schema_version !== 1 || intent.operation_id !== operationId ||
+        intent.task_id !== task.meta.id || intent.workflow_id !== input.workflow_id ||
+        intent.path !== input.path || intent.previous_hash !== input.expected_hash)
+      throw new Error('File-write retry changed its original operation payload.');
+    const previousPath = physical(root, `${base}/previous.utf8`);
+    if (!existsSync(previousPath)) throw new Error('Literal replacement retry has no authenticated original bytes in write history.');
+    original = readFileSync(previousPath);
+    if (hash(original) !== input.expected_hash)
+      throw new Error('Literal replacement history does not match the requested original file hash.');
+  } else {
+    original = expected(root, input.path, input.expected_hash);
+    if (original === null) throw new Error('Literal replacement requires an existing file.');
+  }
+  const text = original.toString('utf8');
+  const needle = input.replacement.before;
+  let count = 0;
+  for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) count++;
+  if (count !== 1) throw new Error(`Literal replacement text must occur exactly once; found ${count} occurrences.`);
+  const at = text.indexOf(needle);
+  const content = text.slice(0, at) + input.replacement.after + text.slice(at + needle.length);
+  return workspaceWrite(root, {
+    task_id: input.task_id, workflow_id: input.workflow_id, invocation_id: input.invocation_id,
+    path: input.path, content, expected_hash: input.expected_hash, operation_id: operationId,
+  });
 }

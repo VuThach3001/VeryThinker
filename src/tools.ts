@@ -14,6 +14,11 @@ import {
   withOperationLock,
 } from './storage.js';
 import { readInvocation, assertRouting, roleModelPolicy } from './routing.js';
+import {
+  authorizeFastOperation,
+  fastCapabilities,
+  type FastGrantTarget,
+} from './fast-grants.js';
 
 export const toolCatalog = [
   {
@@ -79,6 +84,7 @@ const common = [
   'task_context',
   'memory_search',
   'manager_status',
+  'manager_progress',
   'native_status',
   'native_wait',
   'capability_describe',
@@ -333,7 +339,7 @@ export function authorizeOperation(
   root: string,
   invocationId: string,
   operation: string,
-  input: { workflow_id?: string; task_id?: string } = {},
+  input: FastGrantTarget = {},
 ): RoleCapabilities {
   const receipt = readInvocation(root, invocationId);
   assertRouting(root, receipt.role, invocationId, {
@@ -341,7 +347,9 @@ export function authorizeOperation(
     task_id: input.task_id ?? receipt.task_id ?? undefined,
     require_completed: false,
   });
-  const contract = roleCapabilities(receipt.role);
+  const contract = receipt.fast_grant
+    ? authorizeFastOperation(root, receipt, operation, input)
+    : roleCapabilities(receipt.role);
   if (!contract.operations.includes(operation))
     throw new Error(`Role ${receipt.role} cannot use ${operation}.`);
   if (receipt.task_id && input.task_id && receipt.task_id !== input.task_id)
@@ -349,6 +357,9 @@ export function authorizeOperation(
   if (receipt.workflow_id && input.workflow_id && receipt.workflow_id !== input.workflow_id)
     throw new Error('Operation escapes the assigned workflow.');
   return contract;
+}
+export function roleCapabilitiesForReceipt(root: string, receipt: import('./routing.js').NativeReceipt): RoleCapabilities {
+  return receipt.fast_grant ? fastCapabilities(root, receipt) : roleCapabilities(receipt.role);
 }
 function npmScript(): string {
   const options = [

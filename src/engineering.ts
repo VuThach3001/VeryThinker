@@ -17,6 +17,7 @@ import {
   snapshotPaths,
   updateRecord,
 } from './storage.js';
+import { fastResponsibility } from './fast-grants.js';
 import { ensureIndex } from './indexing.js';
 import { listPacks } from './packs.js';
 import {
@@ -86,9 +87,10 @@ function authoredRoutingProblems(
   if (typeof id !== 'string') return [`${record.meta.id} has no confirmed native author.`];
   try {
     const receipt = readInvocation(root, id);
-    if (!expected[record.meta.type]!.includes(receipt.role))
+    const responsibility = fastResponsibility(root, receipt, record.meta.type) ?? receipt.role;
+    if (!expected[record.meta.type]!.includes(responsibility))
       return [`${record.meta.id} was not authored by the required strategic role.`];
-    return routingProblems(root, receipt.role, id, {
+    return routingProblems(root, responsibility, id, {
       ...invocationBinding(record),
       ...(workflowId ? { workflow_id: workflowId } : {}),
     }).map((problem) => `${record.meta.id}: ${problem}`);
