@@ -518,7 +518,11 @@ test('slow publication cannot overwrite changed workflow or evidence with comple
       /Workflow changed during closure|Documentation files changed/,
     );
     assert.notEqual(getRecord(work.root, work.parent.meta.id).meta.data.phase, 'completed');
-    assert.equal(getRecord(work.root, work.parent.meta.id).meta.data.final_report_id, null);
+    const status = workflowStatus(work.root, work.parent.meta.id);
+    assert.equal(typeof status.final_report_id, 'string');
+    assert.equal(typeof status.final_report_hash, 'string');
+    assert.equal(status.local_delivery.status, 'stale');
+    assert.ok(status.local_delivery.stale_findings.length > 0);
   }
 });
 

@@ -37,6 +37,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     result(id, { status: 'unsubscribed' });
     continue;
   }
+  if (method === 'thread/turns/list') {
+    result(id, { data: [], nextCursor: null });
+    continue;
+  }
   if (method === 'config/read')
     result(id, {
       config: {
@@ -49,6 +53,14 @@ for await (const line of createInterface({ input: process.stdin })) {
       origins: {},
     });
   if (method === 'thread/start' || method === 'thread/resume') {
+    if (method === 'thread/resume' && scenario === 'large-resume' && !params.excludeTurns) {
+      result(id, { thread: { id: params.threadId, turns: [{ items: ['x'.repeat(9 * 1024 * 1024)] }] } });
+      continue;
+    }
+    if (method === 'thread/resume' && scenario === 'resume-pre-ack-failure') {
+      error(id, 'Transient native resume failure before acknowledgment.');
+      continue;
+    }
     model = params.model;
     configuration = params;
     effort = params.config.model_reasoning_effort;

@@ -19,7 +19,14 @@ import {
 } from './storage.js';
 import { ensureIndex } from './indexing.js';
 import { listPacks } from './packs.js';
-import { assertRouting, readInvocation, readRoutingPolicy, routingProblems } from './routing.js';
+import {
+  assertRouting,
+  assertTerminalHistory,
+  readInvocation,
+  readRoutingPolicy,
+  routingProblems,
+} from './routing.js';
+import { resolveExecutableCommand } from './execution.js';
 import { noteFreshnessProblems } from './notes.js';
 import { verifyFrozenRecipe } from './recipes.js';
 import { workspaceHistoryProblems, workspaceResumeOperations } from './workspace.js';
@@ -457,6 +464,29 @@ function verificationScope(records: ProjectRecord[], record: ProjectRecord): str
       ids.add(r.meta.id);
   return [...ids];
 }
+/** Records whose checks and local gates apply to this assignment. Ancestors stay in
+ * verificationScope for traceability, but their downstream checks belong to their own task. */
+export function executionScope(records: ProjectRecord[], record: ProjectRecord): string[] {
+  const ids = new Set<string>([record.meta.id]);
+  const requirements =
+    record.meta.type === 'task'
+      ? requirementsFor(record)
+      : record.meta.type === 'requirement'
+        ? [record.meta.id]
+        : record.meta.type === 'design'
+          ? record.meta.links.filter((link) => link.type === 'satisfies').map((link) => link.target)
+          : [];
+  if (requirements.length) requirementScope(records, requirements);
+  for (const id of requirements) ids.add(id);
+  for (const design of records)
+    if (
+      design.meta.type === 'design' &&
+      design.meta.status !== 'superseded' &&
+      design.meta.links.some((link) => link.type === 'satisfies' && ids.has(link.target))
+    )
+      ids.add(design.meta.id);
+  return [...ids];
+}
 function evidenceProblems(
   root: string,
   evidence: ProjectRecord,
@@ -605,11 +635,13 @@ function evidenceProblems(
 }
 function reviewBaseline(root: string, target: ProjectRecord, records = loadRecords(root)): string {
   const ids = new Set(verificationScope(records, target));
+  const applicableIds = new Set(executionScope(records, target));
   if (target.meta.type === 'check')
     for (const link of target.meta.links.filter((link) => link.type === 'verifies')) {
       const referenced = records.find((record) => record.meta.id === link.target);
       if (referenced) {
         for (const id of verificationScope(records, referenced)) ids.add(id);
+        for (const id of executionScope(records, referenced)) applicableIds.add(id);
         if (referenced.meta.type === 'design')
           for (const id of requirementScope(
             records,
@@ -630,7 +662,7 @@ function reviewBaseline(root: string, target: ProjectRecord, records = loadRecor
     (r) =>
       r.meta.type === 'check' &&
       r.meta.status !== 'superseded' &&
-      r.meta.links.some((l) => l.type === 'verifies' && ids.has(l.target)),
+      r.meta.links.some((l) => l.type === 'verifies' && applicableIds.has(l.target)),
   );
   const baseline: Record<string, unknown> = {
     records: Object.fromEntries(
@@ -782,7 +814,10 @@ export function assignmentReport(
       prior.task_id !== receipt.task_id
     )
       throw new Error('A follow-up report cannot cover another role, workflow, or task.');
-    assertRouting(root, prior.role, id, { workflow_id: receipt.workflow_id });
+    assertTerminalHistory(root, prior.role, id, {
+      workflow_id: receipt.workflow_id,
+      task_id: receipt.task_id,
+    });
   }
   const identity = hash(
     JSON.stringify({
@@ -810,6 +845,18 @@ export function assignmentReport(
       covered_invocation_ids: input.covered_invocation_ids ?? [],
       requested_model: receipt.requested_model,
       confirmed_model: receipt.confirmed_model,
+      covered_attempts: (input.covered_invocation_ids ?? []).map((id) => {
+        const prior = readInvocation(root, id);
+        return {
+          invocation_id: prior.id,
+          state: prior.state,
+          inference_completed: prior.inference_completed,
+          execution_mode: prior.execution_mode,
+          requested_model: prior.requested_model,
+          confirmed_model: prior.confirmed_model,
+          error: prior.error,
+        };
+      }),
     },
     body: input.body,
   });
@@ -919,7 +966,7 @@ export function verify(
     if (task.meta.status === 'blocked' && gate !== 'ready') add('blocked', 'Task is blocked.');
     let scope: string[];
     try {
-      scope = verificationScope(records, task);
+      scope = executionScope(records, task);
     } catch (error) {
       add('invalid-requirement-ancestry', (error as Error).message);
       continue;
@@ -1423,6 +1470,7 @@ function checkedInspection(
   task: ProjectRecord,
   records: ProjectRecord[],
   scope: string[],
+  applicableScope: string[],
   files: Record<string, string>,
   input: InspectionInput,
 ): { observations: object[]; records: ProjectRecord[]; files: string[]; limitations: string[] } {
@@ -1472,7 +1520,9 @@ function checkedInspection(
       .filter(
         (record) =>
           record.meta.type === 'check' &&
-          record.meta.links.some((link) => link.type === 'verifies' && scope.includes(link.target)),
+          record.meta.links.some(
+            (link) => link.type === 'verifies' && applicableScope.includes(link.target),
+          ),
       )
       .map((record) => record.meta.id),
   );
@@ -1502,8 +1552,7 @@ function checkedInspection(
       'oracle_paths',
       'protected_acceptance_paths',
     ])
-      for (const path of strings(record.meta.data[field]))
-        allowedFiles.add(path);
+      for (const path of strings(record.meta.data[field])) allowedFiles.add(path);
     for (const field of ['artifact_path', 'log_path', 'receipt_path'])
       if (typeof record.meta.data[field] === 'string')
         allowedFiles.add(record.meta.data[field] as string);
@@ -1628,9 +1677,10 @@ function collectVerification(
     if (errors.length) throw new Error(errors.join('\n'));
   }
   const records = loadRecords(root);
-  const scope = verificationScope(records, task);
+  const scope = executionScope(records, task);
   if (!check.meta.links.some((l) => l.type === 'verifies' && scope.includes(l.target)))
     throw new Error('Check does not verify this task or its requirements/design.');
+  const provenanceScope = verificationScope(records, task);
   const command = strings(check.meta.data.command);
   if (!inspection && !command.length)
     throw new Error('Check command must be a non-empty executable/argument array.');
@@ -1639,14 +1689,23 @@ function collectVerification(
     throw new Error('Check needs baseline_paths for implementation inputs.');
   const file_baseline = snapshotPaths(root, baselinePaths);
   const record_baseline = Object.fromEntries(
-    scope.map((id) => {
+    provenanceScope.map((id) => {
       const r = records.find((r) => r.meta.id === id);
       if (!r) throw new Error(`Missing baseline record ${id}`);
       return [id, recordFingerprint(r)];
     }),
   );
   const inspected = inspection
-    ? checkedInspection(root, check, task, records, scope, file_baseline, inspection)
+    ? checkedInspection(
+        root,
+        check,
+        task,
+        records,
+        provenanceScope,
+        scope,
+        file_baseline,
+        inspection,
+      )
     : undefined;
   for (const source of inspected?.records ?? [])
     record_baseline[source.meta.id] = recordFingerprint(source);
@@ -1664,6 +1723,7 @@ function collectVerification(
     files: file_baseline,
     records: records.filter(
       (record) =>
+        provenanceScope.includes(record.meta.id) ||
         scope.includes(record.meta.id) ||
         record.meta.id === check.meta.id ||
         inspected?.records.some((source) => source.meta.id === record.meta.id),
@@ -1698,9 +1758,10 @@ function collectVerification(
     confirmed_model: task.meta.data.confirmed_model ?? null,
   });
   const started = Date.now();
+  const resolvedCommand = inspected ? null : resolveExecutableCommand(command);
   const executed = inspected
     ? null
-    : spawnSync(command[0]!, command.slice(1), {
+    : spawnSync(resolvedCommand!.executable, resolvedCommand!.args, {
         cwd: root,
         shell: false,
         encoding: 'utf8',
@@ -1737,7 +1798,9 @@ function collectVerification(
     check_fingerprint: recordFingerprint(check),
     record_baseline,
     record_revisions: Object.fromEntries(
-      records.filter((r) => scope.includes(r.meta.id)).map((r) => [r.meta.id, r.meta.revision]),
+      records
+        .filter((r) => provenanceScope.includes(r.meta.id) || scope.includes(r.meta.id))
+        .map((r) => [r.meta.id, r.meta.revision]),
     ),
     file_baseline,
     input_snapshot,
@@ -1754,6 +1817,9 @@ function collectVerification(
     method: check.meta.data.method ?? 'test',
     environment: check.meta.data.environment ?? { os: process.platform, node: process.version },
     command,
+    executed_command: resolvedCommand
+      ? [resolvedCommand.executable, ...resolvedCommand.args]
+      : null,
     ...(inspected
       ? {
           inspection: {
@@ -1812,12 +1878,19 @@ export function archiveEvidence(root: string, id: string): ProjectRecord {
     `# Results\n${data.result}; exit code ${data.exit_code}.\n\n# Evidence\n[Archived verification log](../evidence/${id}/output.log)\n\n# Limitations\nEvidence applies to its recorded baseline. Inspect exported logs before sharing.\n`,
   );
 }
-export function contextPacket(root: string, id: string, maxChars = 18000): unknown {
+export function contextPacket(root: string, id: string, maxChars?: number): unknown {
+  const explicitBudget = maxChars !== undefined;
+  maxChars ??= 18000;
   const task = getRecord(root, id);
   if (task.meta.type !== 'task') throw new Error('Context target must be a task.');
   const records = loadRecords(root);
   const config = readConfig(root);
-  const ids = new Set([...verificationScope(records, task), ...dependenciesFor(task)]);
+  const localScope = executionScope(records, task);
+  const ids = new Set([
+    ...verificationScope(records, task),
+    ...executionScope(records, task),
+    ...dependenciesFor(task),
+  ]);
   const relevant = records.filter(
     (r) => ids.has(r.meta.id) || r.meta.links.some((l) => ids.has(l.target)),
   );
@@ -1888,7 +1961,11 @@ export function contextPacket(root: string, id: string, maxChars = 18000): unkno
         }
       : null,
     verification_procedures: relevant
-      .filter((r) => r.meta.type === 'check')
+      .filter(
+        (r) =>
+          r.meta.type === 'check' &&
+          r.meta.links.some((link) => link.type === 'verifies' && localScope.includes(link.target)),
+      )
       .map((r) => ({ id: r.meta.id, command: r.meta.data.command, method: r.meta.data.method })),
     limits: { max_workers: config.max_workers, repair_attempts: config.repair_attempts },
     escalation: [
@@ -1917,7 +1994,9 @@ export function contextPacket(root: string, id: string, maxChars = 18000): unkno
     }[],
     omitted_inputs: relevant.length,
   };
-  if (JSON.stringify(packet).length > maxChars)
+  const metadataSize = JSON.stringify(packet).length;
+  if (!explicitBudget && metadataSize > maxChars) maxChars = Math.min(100000, metadataSize + 8000);
+  if (metadataSize > maxChars)
     throw new Error(
       'Task metadata exceeds the context budget. Increase max_chars or split the task.',
     );

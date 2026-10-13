@@ -5,6 +5,7 @@ import {
   generateKeyPairSync,
   randomUUID,
   sign,
+  verify,
 } from 'node:crypto';
 import {
   existsSync,
@@ -42,6 +43,7 @@ import {
   type NativeRole,
 } from './routing.js';
 import { roleCapabilities, resolveCapabilities, toolCatalog, type ProviderId } from './tools.js';
+import { ensureNativeTrustFiles } from './trust.js';
 
 const runtimeVersion = '0.162.1';
 const runtimeIntegrity =
@@ -73,6 +75,7 @@ interface NativeOptions {
   runtime?: (root: string) => Promise<RuntimeInfo>;
   rpc_timeout_ms?: number;
   owner_token?: string;
+  provisioning_hook?: (stage: 'pending' | 'public' | 'trust' | 'private') => void;
 }
 interface RpcMessage {
   id?: number | string;
@@ -88,29 +91,126 @@ function cleanError(error: unknown): string {
     .replace(/\b(?:sk-|sess-)[A-Za-z0-9_-]{8,}/g, '[redacted credential]')
     .slice(0, 3000);
 }
-function receiptKey(root: string): { privateKey: string; id: string } {
+interface InitialKeyIntent {
+  schema_version: 1;
+  purpose: 'verythinker-native-initial-key';
+  project_id: string;
+  key_id: string;
+  public_key: string;
+  signature: string;
+}
+interface PendingInitialKey {
+  schema_version: 1;
+  project_id: string;
+  key_id: string;
+  private_key: string;
+  public_key: string;
+  intent: InitialKeyIntent;
+}
+function initialTrustBytes(id: string): string {
+  return JSON.stringify({ schema_version: 1, keys: [id] }, null, 2) + '\n';
+}
+function validatePendingInitialKey(root: string, path: string): PendingInitialKey {
+  let pending: PendingInitialKey;
+  try {
+    pending = JSON.parse(readFileSync(path, 'utf8')) as PendingInitialKey;
+    const privateKey = createPrivateKey(pending.private_key);
+    const derivedPublic = createPublicKey(privateKey)
+      .export({ type: 'spki', format: 'pem' })
+      .toString();
+    const { signature, ...unsigned } = pending.intent;
+    if (
+      pending.schema_version !== 1 ||
+      pending.project_id !== readConfig(root).project_id ||
+      pending.intent?.schema_version !== 1 ||
+      pending.intent.purpose !== 'verythinker-native-initial-key' ||
+      pending.intent.project_id !== pending.project_id ||
+      pending.intent.key_id !== pending.key_id ||
+      pending.intent.public_key !== pending.public_key ||
+      derivedPublic !== pending.public_key ||
+      hash(derivedPublic) !== pending.key_id ||
+      !verify(
+        null,
+        Buffer.from(canonicalJson(unsigned)),
+        createPublicKey(derivedPublic),
+        Buffer.from(signature, 'base64'),
+      )
+    )
+      throw new Error('invalid intent');
+    return pending;
+  } catch {
+    throw new Error('Initial native key recovery intent is invalid or belongs to another project.');
+  }
+}
+function receiptKey(
+  root: string,
+  provisioningHook?: NativeOptions['provisioning_hook'],
+): { privateKey: string; id: string } {
   return withOperationLock(root, 'native-receipt-key', () => {
     const privatePath = safePath(root, '.verythinker/cache/native/private-key.pem');
+    const pendingPath = safePath(root, '.verythinker/cache/native/pending-initial-key.json');
     if (!existsSync(privatePath)) {
-      const keys = generateKeyPairSync('ed25519');
-      const privateKey = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
-      const publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
-      const id = hash(publicKey);
+      const receipts = safePath(root, '.verythinker/native/receipts');
+      const historyExists =
+        existsSync(safePath(root, '.verythinker/cache/native/trust-backup.json')) ||
+        (existsSync(receipts) && readdirSync(receipts).some((name) => name.endsWith('.json')));
+      if (historyExists)
+        throw new Error(
+          'The original native signing key is missing. Restore it from its trusted local backup; no replacement key was enrolled.',
+        );
+      let pending: PendingInitialKey;
+      if (existsSync(pendingPath)) {
+        pending = validatePendingInitialKey(root, pendingPath);
+      } else {
+        if (existsSync(safePath(root, '.verythinker/native/trust.json')))
+          throw new Error(
+            'The original native signing key is missing. Restore it from its trusted local backup; no replacement key was enrolled.',
+          );
+        const keys = generateKeyPairSync('ed25519');
+        const privateKey = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+        const publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+        const id = hash(publicKey);
+        const unsignedIntent = {
+          schema_version: 1 as const,
+          purpose: 'verythinker-native-initial-key' as const,
+          project_id: readConfig(root).project_id,
+          key_id: id,
+          public_key: publicKey,
+        };
+        pending = {
+          schema_version: 1,
+          project_id: unsignedIntent.project_id,
+          key_id: id,
+          private_key: privateKey,
+          public_key: publicKey,
+          intent: {
+            ...unsignedIntent,
+            signature: sign(
+              null,
+              Buffer.from(canonicalJson(unsignedIntent)),
+              keys.privateKey,
+            ).toString('base64'),
+          },
+        };
+        atomicWrite(pendingPath, JSON.stringify(pending, null, 2) + '\n');
+        provisioningHook?.('pending');
+      }
+      const privateKey = pending.private_key;
+      const publicKey = pending.public_key;
+      const id = pending.key_id;
       const publicPath = safePath(root, `.verythinker/native/keys/${id}.pem`);
-      atomicWrite(publicPath, publicKey);
       const trustPath = safePath(root, '.verythinker/native/trust.json');
-      const old = existsSync(trustPath)
-        ? JSON.parse(readFileSync(trustPath, 'utf8'))
-        : { schema_version: 1, keys: [] };
-      if (!Array.isArray(old.keys)) throw new Error('Native trust registry is malformed.');
-      atomicWrite(
-        trustPath,
-        JSON.stringify({ schema_version: 1, keys: [...new Set([...old.keys, id])] }, null, 2) +
-          '\n',
-      );
-      // Publish the public trust data first. An interrupted first-key creation can
-      // safely retry rather than leaving an unusable private key without proof.
+      const trustBytes = initialTrustBytes(id);
+      if (existsSync(publicPath) && readFileSync(publicPath, 'utf8') !== publicKey)
+        throw new Error('Initial native public key differs from its signed recovery intent.');
+      if (existsSync(trustPath) && readFileSync(trustPath, 'utf8') !== trustBytes)
+        throw new Error('Initial native trust registry differs from its signed recovery intent.');
+      if (!existsSync(publicPath)) atomicWrite(publicPath, publicKey);
+      provisioningHook?.('public');
+      if (!existsSync(trustPath)) atomicWrite(trustPath, trustBytes);
+      provisioningHook?.('trust');
       atomicWrite(privatePath, privateKey);
+      provisioningHook?.('private');
     }
     const privateKey = readFileSync(privatePath, 'utf8');
     const publicKey = createPublicKey(createPrivateKey(privateKey))
@@ -118,6 +218,7 @@ function receiptKey(root: string): { privateKey: string; id: string } {
       .toString();
     const id = hash(publicKey);
     const publicPath = safePath(root, `.verythinker/native/keys/${id}.pem`);
+    ensureNativeTrustFiles(root, true);
     const trusted = JSON.parse(
       readFileSync(safePath(root, '.verythinker/native/trust.json'), 'utf8'),
     );
@@ -127,11 +228,22 @@ function receiptKey(root: string): { privateKey: string; id: string } {
       !trusted.keys?.includes(id)
     )
       throw new Error('Native signing key has no matching trusted public key.');
+    if (existsSync(pendingPath))
+      try {
+        const pending = validatePendingInitialKey(root, pendingPath);
+        if (pending.key_id === id && pending.private_key === privateKey) unlinkSync(pendingPath);
+      } catch {
+        // Preserve malformed or foreign pending state without weakening the active key.
+      }
     return { privateKey, id };
   });
 }
-function persist(root: string, receipt: NativeReceipt): NativeReceipt {
-  const key = receiptKey(root);
+function persist(
+  root: string,
+  receipt: NativeReceipt,
+  provisioningHook?: NativeOptions['provisioning_hook'],
+): NativeReceipt {
+  const key = receiptKey(root, provisioningHook);
   receipt.key_id = key.id;
   receipt.updated_at = now();
   const { signature: oldSignature, ...unsigned } = receipt;
@@ -703,10 +815,14 @@ class NativeSession {
     try {
       ack = await transport.request(resumeThread ? 'thread/resume' : 'thread/start', {
         ...params,
-        ...(resumeThread ? { threadId: resumeThread } : {}),
+        ...(resumeThread ? { threadId: resumeThread, excludeTurns: true } : {}),
       });
     } catch (error) {
-      if (!spec.strong && this.receipt.requested_model === 'gpt-6-luna' && modelUnavailable(error)) {
+      if (
+        !spec.strong &&
+        this.receipt.requested_model === 'gpt-6-luna' &&
+        modelUnavailable(error)
+      ) {
         this.update({
           requested_model: 'gpt-5.6-terra',
           fallback_evidence: { model: 'gpt-6-luna', reason: cleanError(error), at: now() },
@@ -716,6 +832,8 @@ class NativeSession {
       throw error;
     }
     validateAcknowledgment(ack, this.root, this.receipt.requested_model, spec.reasoning_effort);
+    if (resumeThread && ack.thread.id !== resumeThread)
+      throw new Error('Native resume acknowledged a different thread identity.');
     if (spec.strong && ack.sandbox?.type !== 'readOnly')
       throw new Error(
         'The native client did not acknowledge read-only shell access for the strategic role.',
@@ -728,7 +846,19 @@ class NativeSession {
       native_thread_id: ack.thread.id,
     });
     if (resumeThread) {
-      const running = (ack.thread.turns ?? []).filter((turn: any) => turn.status === 'inProgress');
+      // Retrieve only recent turn metadata: a saved conversation can exceed the
+      // transport bound when resume hydrates every historical item.
+      const page = await transport.request('thread/turns/list', {
+        threadId: resumeThread,
+        limit: 100,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+      });
+      if (!Array.isArray(page?.data))
+        throw new Error('Native resume did not return bounded turn metadata.');
+      const running = page.data.filter((turn: any) => turn.status === 'inProgress');
+      if (ack.thread.status?.type === 'active' && running.length === 0)
+        throw new Error('The active native thread could not be reconciled from recent turn metadata.');
       for (const turn of running) {
         await transport.request('turn/interrupt', { threadId: resumeThread, turnId: turn.id });
         const completed = await Promise.race([
@@ -903,6 +1033,7 @@ async function startOwned(
   input: NativeStartInput,
   options: NativeOptions,
   prior?: NativeReceipt,
+  resumeThread?: string,
 ): Promise<NativeReceipt> {
   root = resolve(root);
   requireRoutingPolicy(root);
@@ -937,7 +1068,7 @@ async function startOwned(
       throw new Error('The project already has its maximum concurrent native workers.');
     const created = newReceipt(root, input, prior);
     if (options.runtime) created.execution_mode = 'protocol-fixture';
-    persist(root, created);
+    persist(root, created, options.provisioning_hook);
     return created;
   });
   const key = `${root}:${receipt.id}`;
@@ -970,7 +1101,7 @@ async function startOwned(
       }
     }
     const runtime = await (options.runtime ?? ensureNativeRuntime)(root);
-    await session.begin(runtime, prior?.native_thread_id ?? undefined);
+    await session.begin(runtime, resumeThread ?? prior?.native_thread_id ?? undefined);
   } catch (error) {
     session.settle('blocked', cleanError(error));
   }
@@ -1035,6 +1166,32 @@ export async function interruptNative(root: string, id: string): Promise<NativeR
     session.settle('interrupted', 'Native invocation interrupted by its owner.');
   return readInvocation(root, id);
 }
+/** Find only a signed same-assignment ancestor; never invent a thread acknowledgment. */
+export function nativeResumeTarget(root: string, receipt: NativeReceipt): NativeReceipt | undefined {
+  if (receipt.native_thread_id) return receipt;
+  const visited = new Set([receipt.id]);
+  let current = receipt;
+  for (let depth = 0; current.prior_invocation_id && depth < 128; depth++) {
+    if (current.state !== 'blocked' || current.native_turn_id || current.inference_completed)
+      throw new Error('Only a blocked pre-acknowledgment resume can recover its prior thread.');
+    const id = current.prior_invocation_id;
+    if (visited.has(id)) throw new Error('Native resume lineage contains a cycle.');
+    visited.add(id);
+    const ancestor = readInvocation(root, id);
+    if (
+      ancestor.project_id !== receipt.project_id || ancestor.role !== receipt.role ||
+      ancestor.workflow_id !== receipt.workflow_id || ancestor.task_id !== receipt.task_id
+    ) throw new Error('Native resume lineage belongs to another assignment.');
+    if (ancestor.native_thread_id) {
+      if (ancestor.state !== 'completed' || !ancestor.inference_completed)
+        throw new Error('The acknowledged ancestor must be completed before retrying a failed resume.');
+      return ancestor;
+    }
+    current = ancestor;
+  }
+  if (current.prior_invocation_id) throw new Error('Native resume lineage exceeds its bounded depth.');
+  return undefined;
+}
 async function resumeOwned(
   root: string,
   id: string,
@@ -1049,7 +1206,8 @@ async function resumeOwned(
   if (ending?.closing) await ending.closing;
   if (prior.server_pid && ownerIsAlive(prior.server_pid) && !active.has(`${root}:${id}`))
     throw new Error('The prior native transport has not exited; retry after reconciliation.');
-  if (!prior.native_thread_id)
+  const target = nativeResumeTarget(root, prior);
+  if (!target?.native_thread_id)
     throw new Error(
       'This invocation has no acknowledged native thread to resume. Start a new bounded invocation after resolving its blocker.',
     );
@@ -1064,6 +1222,7 @@ async function resumeOwned(
     },
     options,
     prior,
+    target.native_thread_id,
   );
 }
 export function resumeNative(

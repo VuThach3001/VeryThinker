@@ -628,12 +628,25 @@ export function workflowStatus(root: string, id?: string): unknown {
     completionPath && existsSync(completionPath)
       ? JSON.parse(readFileSync(completionPath, 'utf8')).error
       : null;
-  const closureBlockers = [
-    ...(intent?.error ? [intent.error] : []),
-    ...(completionError ? [completionError] : []),
-    ...(archiveError ? [archiveError] : []),
-  ];
+  const savedPublicationDisposition = parent.meta.data.publication_disposition as
+    Record<string, unknown> | undefined;
   const questions = strings(parent.meta.data.open_questions);
+  const appliedContinuations = strings(parent.meta.data.applied_continuation_ids);
+  const transferredContinuations = (
+    Array.isArray(parent.meta.data.continuation_transfers)
+      ? parent.meta.data.continuation_transfers
+      : []
+  ).map((entry) => entry.continuation_id);
+  const pendingContinuations = (
+    Array.isArray(parent.meta.data.pending_continuations)
+      ? parent.meta.data.pending_continuations
+      : []
+  ).filter(
+    (entry) =>
+      typeof entry.id === 'string' &&
+      !appliedContinuations.includes(entry.id) &&
+      !transferredContinuations.includes(entry.id),
+  );
   const managerAttemptId =
     parent.meta.data.native_manager_attempt_id ?? parent.meta.data.invocation_id;
   let managerAttempt: ReturnType<typeof readInvocation> | null = null;
@@ -662,9 +675,78 @@ export function workflowStatus(root: string, id?: string): unknown {
     };
   });
   const decisionFindings = parent.meta.data.decision_id ? decisionProblems(root, parent) : [];
+  const savedLocalDelivery = parent.meta.data.local_delivery as Record<string, unknown> | undefined;
+  const reportFindings: string[] = [];
+  if (savedLocalDelivery)
+    try {
+      const report = getRecord(root, String(savedLocalDelivery.report_id));
+      const currentHash = hash(readFileSync(safePath(root, report.path)));
+      if (report.path !== savedLocalDelivery.report_path)
+        reportFindings.push('The saved final report path changed after local delivery.');
+      if (currentHash !== savedLocalDelivery.report_hash)
+        reportFindings.push('The saved final report bytes changed after local delivery.');
+      if (parent.meta.data.final_report_id !== report.meta.id)
+        reportFindings.push('The workflow no longer points to its saved final report.');
+    } catch {
+      reportFindings.push('The saved final report is missing or unreadable.');
+    }
+  const deliveryFindings = [
+    ...decisionFindings,
+    ...strings(parent.meta.data.open_questions).map(
+      (question) => `Unresolved product question: ${question}`,
+    ),
+    ...reportFindings,
+    ...(pendingContinuations.length
+      ? ['New user continuations require incorporation and reassessment.']
+      : []),
+    ...(parent.meta.data.phase === 'reassessment-required'
+      ? ['Workflow is marked for reassessment.']
+      : []),
+    ...taskStates.flatMap((task) =>
+      task.accepted.ok
+        ? []
+        : task.accepted.findings.map((finding) => `${task.id}: ${finding.message}`),
+    ),
+    ...(parent.meta.data.routing_required === true
+      ? assignmentDocumentationProblems(root, id)
+      : []),
+  ];
+  const localDelivery = savedLocalDelivery
+    ? {
+        ...savedLocalDelivery,
+        status: deliveryFindings.length ? 'stale' : savedLocalDelivery.status,
+        ...(deliveryFindings.length ? { stale_findings: deliveryFindings } : {}),
+      }
+    : null;
+  const publicationBlockers = Array.isArray(savedPublicationDisposition?.blockers)
+    ? (savedPublicationDisposition.blockers as string[])
+    : [];
+  const archiveRequired = readArchivePolicy(root)?.enabled === true;
+  const archiveConfirmed =
+    !archiveRequired ||
+    recoveredArchive !== null ||
+    (parent.meta.data.archive as { status?: string } | undefined)?.status === 'completed';
+  const nativeComplete =
+    parent.meta.data.routing_required !== true ||
+    (managerAttempt?.state === 'completed' && managerAttempt.inference_completed === true);
+  const currentLocalClosure =
+    parent.meta.data.phase === 'completed' &&
+    decisionFindings.length === 0 &&
+    deliveryFindings.length === 0 &&
+    taskStates.every((task) => task.accepted.ok);
+  const oldPublicationErrorsResolved =
+    currentLocalClosure && nativeComplete && archiveConfirmed && publicationBlockers.length === 0;
+  const closureBlockers = [
+    ...(intent?.error && !oldPublicationErrorsResolved ? [intent.error] : []),
+    ...(completionError && !oldPublicationErrorsResolved ? [completionError] : []),
+    ...(archiveError && !recoveredArchive ? [archiveError] : []),
+    ...publicationBlockers,
+  ];
   const nativeCompletionFindings =
     parent.meta.data.routing_required === true &&
-    ['completed', 'awaiting-native-completion'].includes(String(parent.meta.data.phase))
+    ['completed', 'completed-with-blockers', 'awaiting-native-completion'].includes(
+      String(parent.meta.data.phase),
+    )
       ? routingProblems(
           root,
           'manager',
@@ -675,11 +757,16 @@ export function workflowStatus(root: string, id?: string): unknown {
         )
       : [];
   let nextAction: string;
-  if (questions.length) nextAction = 'Clarify the recorded product questions with the user.';
+  if (pendingContinuations.length)
+    nextAction =
+      'Incorporate the saved user continuations, record their IDs as applied, and reassess affected contracts before further dispatch.';
+  else if (questions.length) nextAction = 'Clarify the recorded product questions with the user.';
   else if (managerBlocker)
     nextAction = 'Resolve the recorded native coordinator blocker and resume the saved increment.';
   else if (decisionFindings.length)
     nextAction = 'Reassess changed requirements/contracts and record a fresh specialist decision.';
+  else if (savedLocalDelivery && deliveryFindings.length)
+    nextAction = 'Reassess the saved local report against current deliverables and evidence.';
   else if (!parent.meta.data.decision_id)
     nextAction =
       'Collect specialist contributions, measurable requirements, reviewed design, and bounded tasks; record the manager decision.';
@@ -689,34 +776,48 @@ export function workflowStatus(root: string, id?: string): unknown {
   else if (taskStates.some((t) => t.status !== 'accepted' || !t.accepted.ok))
     nextAction =
       'Dispatch ready tasks, collect complete documentation/evidence, obtain separate reviews, and accept validated submissions.';
-  else if (parent.meta.data.phase === 'completed-with-blockers' || closureBlockers.length)
-    nextAction =
-      'Retry the saved publication blocker when credentials or the upstream become available.';
   else if (nativeCompletionFindings.length)
     nextAction =
       'Wait for the native coordinator completion and automatic archive, or inspect its recorded blocker.';
+  else if (parent.meta.data.phase === 'completed-with-blockers' || closureBlockers.length)
+    nextAction =
+      'Retry the saved publication blocker when credentials or the upstream become available.';
   else if (parent.meta.data.phase === 'completed')
     nextAction =
       'Deliver the saved final report; resume only for a new requirement or changed baseline.';
   else
     nextAction =
       'Curate qualified lessons and run manager_finish to prepare/submit documentation PRs and write the final report.';
-  const phase = questions.length
-    ? 'clarification-required'
-    : managerBlocker
-      ? 'native-blocked'
-      : decisionFindings.length
-        ? 'reassessment-required'
-        : parent.meta.data.decision_id &&
-            taskStates.some((t) => t.status !== 'accepted' || !t.accepted.ok)
-          ? 'execution'
-          : closureBlockers.length
-            ? 'completed-with-blockers'
-            : nativeCompletionFindings.length
-              ? 'awaiting-native-completion'
-              : recoveredArchive
-                ? 'completed'
-                : parent.meta.data.phase;
+  const phase = pendingContinuations.length
+    ? 'reassessment-required'
+    : questions.length
+      ? 'clarification-required'
+      : managerBlocker
+        ? 'native-blocked'
+        : decisionFindings.length
+          ? 'reassessment-required'
+        : savedLocalDelivery && deliveryFindings.length
+            ? 'reassessment-required'
+            : parent.meta.data.decision_id &&
+                taskStates.some((t) => t.status !== 'accepted' || !t.accepted.ok)
+              ? 'execution'
+              : nativeCompletionFindings.length
+                ? 'awaiting-native-completion'
+                : closureBlockers.length
+                  ? 'completed-with-blockers'
+                  : recoveredArchive
+                    ? 'completed'
+                    : parent.meta.data.phase;
+  let finalReportPath: string | null = null;
+  let finalReportHash: string | null = null;
+  if (typeof parent.meta.data.final_report_id === 'string')
+    try {
+      const report = getRecord(root, parent.meta.data.final_report_id);
+      finalReportPath = report.path;
+      finalReportHash = hash(readFileSync(safePath(root, report.path)));
+    } catch {
+      // Keep status readable when a saved report path has been removed or damaged.
+    }
   return {
     workflow_id: id,
     requirement_id: parent.meta.data.requirement_id,
@@ -727,6 +828,8 @@ export function workflowStatus(root: string, id?: string): unknown {
     persisted_phase: parent.meta.data.phase,
     policy: readAutomationPolicy(root),
     open_questions: questions,
+    pending_continuations: pendingContinuations,
+    continuation_transfers: parent.meta.data.continuation_transfers ?? [],
     decision_findings: decisionFindings,
     native_completion_findings: nativeCompletionFindings,
     native_manager_attempt_id: typeof managerAttemptId === 'string' ? managerAttemptId : null,
@@ -737,6 +840,10 @@ export function workflowStatus(root: string, id?: string): unknown {
     tasks: taskStates,
     next_action: nextAction,
     final_report_id: parent.meta.data.final_report_id ?? null,
+    final_report_path: finalReportPath,
+    final_report_hash: finalReportHash,
+    local_delivery: localDelivery,
+    publication_disposition: parent.meta.data.publication_disposition ?? null,
     history: parent.meta.data.history ?? [],
     publications: parent.meta.data.publications ?? [],
     publication_history: parent.meta.data.publication_history ?? [],
@@ -771,7 +878,7 @@ function finishWorkflowClaimed(
   publish: typeof submitContribution,
   archivePublisher: typeof publishArchive,
 ): unknown {
-  const parent = workflow(root, id);
+  let parent = workflow(root, id);
   if (
     readRoutingPolicy(root) &&
     parent.meta.data.routing_required !== true &&
@@ -795,6 +902,26 @@ function finishWorkflowClaimed(
   }
   if (strings(parent.meta.data.open_questions).length)
     throw new Error('Resolve outstanding product questions before closing the workflow.');
+  const applied = strings(parent.meta.data.applied_continuation_ids);
+  const transferred = (
+    Array.isArray(parent.meta.data.continuation_transfers)
+      ? parent.meta.data.continuation_transfers
+      : []
+  ).map((entry) => entry.continuation_id);
+  if (
+    (Array.isArray(parent.meta.data.pending_continuations)
+      ? parent.meta.data.pending_continuations
+      : []
+    ).some(
+      (entry) =>
+        typeof entry.id === 'string' &&
+        !applied.includes(entry.id) &&
+        !transferred.includes(entry.id),
+    )
+  )
+    throw new Error(
+      'Incorporate the saved user continuations and reassess affected contracts before closing the workflow.',
+    );
   const decisionFindings = decisionProblems(root, parent);
   if (decisionFindings.length) throw new Error(decisionFindings.join('\n'));
   const taskIds = strings(parent.meta.data.task_ids);
@@ -814,16 +941,23 @@ function finishWorkflowClaimed(
   const retired = input.retired_candidates ?? [];
   const previousIds = strings(parent.meta.data.knowledge_ids);
   const retiredIds = new Set<string>();
+  const savedRetirementReasons = new Map(
+    (Array.isArray(parent.meta.data.publication_retirements)
+      ? parent.meta.data.publication_retirements
+      : []
+    ).map((item) => [item.knowledge_id, item.reason]),
+  );
   for (const disposition of retired) {
+    const reason = text(disposition.reason, 'Candidate retirement reason');
+    const repeatedRetirement = savedRetirementReasons.get(disposition.knowledge_id) === reason;
     if (
-      !previousIds.includes(disposition.knowledge_id) ||
+      (!previousIds.includes(disposition.knowledge_id) && !repeatedRetirement) ||
       retiredIds.has(disposition.knowledge_id) ||
       input.knowledge_ids?.includes(disposition.knowledge_id)
     )
       throw new Error(
         'Retire each saved candidate once, without selecting it again for this closure.',
       );
-    const reason = text(disposition.reason, 'Candidate retirement reason');
     if (reason.split(/\s+/).length < 4 || reason.length < 24)
       throw new Error(
         'Candidate retirement needs a specific documented replacement or withdrawal reason.',
@@ -847,6 +981,87 @@ function finishWorkflowClaimed(
     throw new Error(
       'The no-lesson rationale must explain why this reviewed work adds no qualified reusable insight.',
     );
+  const closureIntentPath = safePath(root, `.verythinker/archive-intents/${hash(id)}.json`);
+  const savedClosureIntent = existsSync(closureIntentPath)
+    ? (JSON.parse(readFileSync(closureIntentPath, 'utf8')) as Record<string, unknown>)
+    : {};
+  const previousClosureInputs = savedClosureIntent.closure_inputs as
+    | {
+        knowledge_ids?: unknown;
+        no_lesson_reason?: unknown;
+        retired_candidates?: { knowledge_id: string; reason: string }[];
+      }
+    | undefined;
+  const sameSavedCandidateDisposition =
+    JSON.stringify(previousClosureInputs?.knowledge_ids) === JSON.stringify(knowledgeIds) &&
+    (previousClosureInputs?.no_lesson_reason ?? null) === (noLessonReason ?? null);
+  const closureInputs = {
+    knowledge_ids: knowledgeIds,
+    no_lesson_reason: noLessonReason ?? null,
+    retired_candidates:
+      retired.length || !sameSavedCandidateDisposition
+        ? retired.map(({ knowledge_id, reason }) => ({ knowledge_id, reason }))
+        : (previousClosureInputs?.retired_candidates ?? []),
+  };
+  const closureInputsHash = hash(JSON.stringify(closureInputs));
+  const recoveredFrozen = acceptedArchiveForWorkflow(root, id);
+  const storedSnapshotId = (parent.meta.data.archive as { snapshot_id?: string } | undefined)
+    ?.snapshot_id;
+  const frozenSnapshotId =
+    typeof savedClosureIntent.snapshot_id === 'string'
+      ? savedClosureIntent.snapshot_id
+      : (storedSnapshotId ?? recoveredFrozen?.snapshot.snapshot_id);
+  const frozenSnapshot = typeof frozenSnapshotId === 'string';
+  if (typeof frozenSnapshotId === 'string') {
+    const snapshotManifest = (
+      archiveStatus(root, frozenSnapshotId) as {
+        manifest?: {
+          workflow_id?: string;
+          disposition?: string;
+          records?: { id: string; fingerprint: string }[];
+        };
+      }
+    ).manifest;
+    if (snapshotManifest?.workflow_id !== id || snapshotManifest?.disposition !== 'accepted')
+      throw new Error(
+        'The saved frozen snapshot does not belong to this accepted workflow; preserve it and reassess publication.',
+      );
+    const savedReportId = parent.meta.data.final_report_id ?? savedClosureIntent.report_id ?? null;
+    const snapshotRecordsMatch =
+      typeof savedReportId === 'string' &&
+      [savedReportId, ...knowledgeIds].every((recordId) => {
+        const frozen = snapshotManifest?.records?.find((record) => record.id === recordId);
+        return frozen && recordFingerprint(getRecord(root, recordId)) === frozen.fingerprint;
+      });
+    if (typeof savedClosureIntent.closure_inputs_hash === 'string') {
+      if (savedClosureIntent.closure_inputs_hash !== closureInputsHash)
+        throw new Error(
+          'A frozen archive snapshot is bound to different closure inputs; reassess archive publication before changing the report or candidates.',
+        );
+      if (!snapshotRecordsMatch)
+        throw new Error(
+          'A frozen archive snapshot no longer matches the saved final report or selected candidates; preserve it and reassess archive publication.',
+        );
+    } else {
+      const savedKnowledgeIds = parent.meta.data.knowledge_ids;
+      const savedRetirements = Array.isArray(parent.meta.data.publication_retirements)
+        ? parent.meta.data.publication_retirements.map((item) => ({
+            knowledge_id: item.knowledge_id,
+            reason: item.reason,
+          }))
+        : [];
+      if (
+        !Array.isArray(savedKnowledgeIds) ||
+        JSON.stringify(savedKnowledgeIds) !== JSON.stringify(knowledgeIds) ||
+        (parent.meta.data.no_lesson_reason ?? null) !== (noLessonReason ?? null) ||
+        JSON.stringify(savedRetirements) !== JSON.stringify(closureInputs.retired_candidates) ||
+        !snapshotRecordsMatch
+      )
+        throw new Error(
+          'The legacy frozen archive snapshot has no matching saved closure-input binding; preserve it and reassess archive publication before retrying.',
+        );
+    }
+  }
   for (const knowledgeId of knowledgeIds) {
     const candidate = getRecord(root, knowledgeId);
     if (
@@ -868,6 +1083,151 @@ function finishWorkflowClaimed(
   const policy = readAutomationPolicy(root);
   const publications: Record<string, unknown>[] = [];
   const blockers: string[] = [];
+  let reportBaseline: { id: string; path: string; hash: string } | null = null;
+  function assertCurrent(current: ProjectRecord): void {
+    if (
+      current.meta.revision !== parent.meta.revision ||
+      current.meta.data.decision_id !== parent.meta.data.decision_id
+    )
+      throw new Error(
+        'Workflow changed during closure; preserve publication state and reassess the current decision.',
+      );
+    const findings = decisionProblems(root, current);
+    if (strings(current.meta.data.open_questions).length)
+      findings.push('Outstanding product questions require clarification.');
+    if (JSON.stringify(readAutomationPolicy(root)) !== JSON.stringify(policy))
+      findings.push('Automation policy changed during closure.');
+    for (const taskId of taskIds) {
+      const report = verify(root, taskId, 'accepted');
+      if (!report.ok) findings.push(...report.findings.map((f) => `${taskId}: ${f.message}`));
+    }
+    for (const [candidateId, fingerprint] of Object.entries(candidateBaseline)) {
+      if (recordFingerprint(getRecord(root, candidateId)) !== fingerprint)
+        findings.push(`Knowledge candidate changed during closure: ${candidateId}`);
+      prepareContribution(root, candidateId);
+    }
+    if (reportBaseline) {
+      try {
+        const currentReport = getRecord(root, reportBaseline.id);
+        if (
+          currentReport.path !== reportBaseline.path ||
+          hash(readFileSync(safePath(root, currentReport.path))) !== reportBaseline.hash
+        )
+          findings.push(
+            'Final report changed during closure; preserve publication state and reassess.',
+          );
+      } catch {
+        findings.push(
+          'Final report is missing during closure; preserve publication state and reassess.',
+        );
+      }
+    }
+    if (findings.length) throw new Error(findings.join('\n'));
+  }
+  assertCurrent(workflow(root, id));
+  const decision = getRecord(root, String(parent.meta.data.decision_id));
+  const publicationHistory = Array.isArray(parent.meta.data.publication_history)
+    ? [...parent.meta.data.publication_history]
+    : [];
+  const body = `# Objective\n${parent.meta.data.original_requirement}\n\n# Inputs and Sources\nRequirement: ${parent.meta.data.requirement_id}\nTasks: ${taskIds.join(', ')}\n\n# Decisions and Rationale\n${decision.meta.data.summary}\n${decision.meta.data.rationale}\nDecision record: ${decision.meta.id}\n\n# Results\nAll ${taskIds.length} assigned tasks passed current acceptance checks.\nDocumentation and separate review were validated before closure.\n\n# Evidence\n${taskIds.map((taskId) => `Trace ${taskId} for checked baselines, work records, evidence, and review.`).join('\n')}\n\n# Limitations\nThis report records local delivery. External publication state and retry blockers are tracked on the workflow. Native model identity and execution capabilities are limited to recorded observations.\n\n# Lessons\n${knowledgeIds.length ? knowledgeIds.join('\n') : noLessonReason}\n`;
+  let reportId =
+    typeof parent.meta.data.final_report_id === 'string' ? parent.meta.data.final_report_id : null;
+  if (!reportId) {
+    if (typeof savedClosureIntent.report_id === 'string')
+      reportId = getRecord(root, savedClosureIntent.report_id).meta.id;
+    else {
+      const historicalReports = (
+        Array.isArray(parent.meta.data.history) ? parent.meta.data.history : []
+      ).map((item) => item.final_report_id);
+      reportId =
+        loadRecords(root).find(
+          (record) =>
+            record.meta.owner === 'manager' &&
+            record.meta.title === 'Manager final report' &&
+            record.meta.data.workflow_id === id &&
+            !historicalReports.includes(record.meta.id),
+        )?.meta.id ?? null;
+    }
+  }
+  if (reportId) {
+    if (getRecord(root, reportId).body !== body) {
+      if (frozenSnapshot)
+        throw new Error(
+          'A frozen archive snapshot is bound to a different final report; preserve it and reassess archive publication.',
+        );
+      updateRecord(root, reportId, {}, body);
+    }
+  } else
+    reportId = createRecord(root, {
+      type: 'knowledge',
+      title: 'Manager final report',
+      owner: 'manager',
+      data: { kind: 'work-record', workflow_id: id, invocation_id: parent.meta.data.invocation_id },
+      links: [{ type: 'documents', target: id }],
+      body,
+    }).meta.id;
+  const report = getRecord(root, reportId);
+  const reportHash = hash(readFileSync(safePath(root, report.path)));
+  reportBaseline = { id: reportId, path: report.path, hash: reportHash };
+  const localDelivery = {
+    status: 'complete',
+    report_id: reportId,
+    report_path: report.path,
+    report_hash: reportHash,
+    persisted_at:
+      (parent.meta.data.local_delivery as Record<string, unknown> | undefined)?.persisted_at ??
+      now(),
+  };
+  const initialPublicationBlockers =
+    knowledgeIds.length && policy.automatic_pr && !policy.upstream
+      ? ['Configure the shared knowledge upstream once before draft PR submission.']
+      : [];
+  const initialPublicationDisposition = {
+    status: knowledgeIds.length
+      ? policy.automatic_pr && policy.upstream
+        ? 'queued'
+        : policy.automatic_pr
+          ? 'blocked'
+          : 'prepared-locally'
+      : 'not-required',
+    knowledge_ids: knowledgeIds,
+    publications: [],
+    blockers: initialPublicationBlockers,
+  };
+  updateRecord(
+    root,
+    id,
+    {
+      status: 'verified',
+      data: {
+        phase: managerCompleted ? 'completed-with-blockers' : 'awaiting-native-completion',
+        final_report_id: reportId,
+        knowledge_ids: knowledgeIds,
+        no_lesson_reason: noLessonReason ?? null,
+        local_delivery: localDelivery,
+        publication_disposition: initialPublicationDisposition,
+      },
+    },
+    undefined,
+    assertCurrent,
+  );
+  parent = workflow(root, id);
+  if (readArchivePolicy(root)?.enabled) {
+    atomicWrite(
+      closureIntentPath,
+      JSON.stringify(
+        {
+          ...savedClosureIntent,
+          workflow_id: id,
+          report_id: reportId,
+          closure_inputs: closureInputs,
+          closure_inputs_hash: closureInputsHash,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+  }
   for (const knowledgeId of knowledgeIds) {
     if (!policy.automatic_pr) {
       publications.push({
@@ -895,36 +1255,7 @@ function finishWorkflowClaimed(
       }
     }
   }
-  function assertCurrent(current: ProjectRecord): void {
-    if (
-      current.meta.revision !== parent.meta.revision ||
-      current.meta.data.decision_id !== parent.meta.data.decision_id
-    )
-      throw new Error(
-        'Workflow changed during closure; preserve publication state and reassess the current decision.',
-      );
-    const findings = decisionProblems(root, current);
-    if (strings(current.meta.data.open_questions).length)
-      findings.push('Outstanding product questions require clarification.');
-    if (JSON.stringify(readAutomationPolicy(root)) !== JSON.stringify(policy))
-      findings.push('Automation policy changed during closure.');
-    for (const taskId of taskIds) {
-      const report = verify(root, taskId, 'accepted');
-      if (!report.ok) findings.push(...report.findings.map((f) => `${taskId}: ${f.message}`));
-    }
-    for (const [candidateId, fingerprint] of Object.entries(candidateBaseline)) {
-      if (recordFingerprint(getRecord(root, candidateId)) !== fingerprint)
-        findings.push(`Knowledge candidate changed during closure: ${candidateId}`);
-      prepareContribution(root, candidateId);
-    }
-    if (findings.length) throw new Error(findings.join('\n'));
-  }
-  assertCurrent(workflow(root, id));
-  const decision = getRecord(root, String(parent.meta.data.decision_id));
-  const publicationHistory = Array.isArray(parent.meta.data.publication_history)
-    ? [...parent.meta.data.publication_history]
-    : [];
-  for (const batch of [parent.meta.data.publications, publications]) {
+  for (const batch of [parent.meta.data.publications, publications])
     if (
       Array.isArray(batch) &&
       batch.length &&
@@ -937,50 +1268,32 @@ function finishWorkflowClaimed(
         recorded_at: now(),
         publications: batch,
       });
-  }
-  const body = `# Objective\n${parent.meta.data.original_requirement}\n\n# Inputs and Sources\nRequirement: ${parent.meta.data.requirement_id}\nTasks: ${taskIds.join(', ')}\n\n# Decisions and Rationale\n${decision.meta.data.summary}\n${decision.meta.data.rationale}\nDecision record: ${decision.meta.id}\n\n# Results\nAll ${taskIds.length} assigned tasks passed current acceptance checks.\nDocumentation and separate review were validated before closure.\n\n# Evidence\n${taskIds.map((taskId) => `Trace ${taskId} for checked baselines, work records, evidence, and review.`).join('\n')}\n\n# Limitations\n${blockers.length ? blockers.join('\n') : 'Native model identity and execution capabilities are limited to recorded observations.'}\n\n# Lessons\n${knowledgeIds.length ? knowledgeIds.map((knowledgeId) => `${knowledgeId}: ${JSON.stringify(publications.find((p) => p.knowledge_id === knowledgeId))}`).join('\n') : noLessonReason}\n`;
-  let reportId =
-    typeof parent.meta.data.final_report_id === 'string' ? parent.meta.data.final_report_id : null;
-  const closureIntentPath = safePath(root, `.verythinker/archive-intents/${hash(id)}.json`);
-  if (!reportId && readArchivePolicy(root)?.enabled) {
-    const intent = existsSync(closureIntentPath)
-      ? JSON.parse(readFileSync(closureIntentPath, 'utf8'))
-      : {};
-    if (typeof intent.report_id === 'string') reportId = getRecord(root, intent.report_id).meta.id;
-    else {
-      const historicalReports = (
-        Array.isArray(parent.meta.data.history) ? parent.meta.data.history : []
-      ).map((item) => item.final_report_id);
-      reportId =
-        loadRecords(root).find(
-          (record) =>
-            record.meta.owner === 'manager' &&
-            record.meta.title === 'Manager final report' &&
-            record.meta.data.workflow_id === id &&
-            !historicalReports.includes(record.meta.id),
-        )?.meta.id ?? null;
-    }
-  }
-  if (reportId) {
-    if (getRecord(root, reportId).body !== body) updateRecord(root, reportId, {}, body);
-  } else
-    reportId = createRecord(root, {
-      type: 'knowledge',
-      title: 'Manager final report',
-      owner: 'manager',
-      data: { kind: 'work-record', workflow_id: id, invocation_id: parent.meta.data.invocation_id },
-      links: [{ type: 'documents', target: id }],
-      body,
-    }).meta.id;
-  if (readArchivePolicy(root)?.enabled) {
-    const intent = existsSync(closureIntentPath)
-      ? JSON.parse(readFileSync(closureIntentPath, 'utf8'))
-      : {};
-    atomicWrite(
-      closureIntentPath,
-      JSON.stringify({ ...intent, workflow_id: id, report_id: reportId }, null, 2) + '\n',
-    );
-  }
+  const contributionDisposition = {
+    status: blockers.length
+      ? 'blocked'
+      : !knowledgeIds.length
+        ? 'not-required'
+        : policy.automatic_pr
+          ? 'published'
+          : 'prepared-locally',
+    knowledge_ids: knowledgeIds,
+    publications,
+    blockers: [...blockers],
+  };
+  updateRecord(
+    root,
+    id,
+    {
+      data: {
+        publication_disposition: contributionDisposition,
+        publications,
+        publication_history: publicationHistory,
+      },
+    },
+    undefined,
+    assertCurrent,
+  );
+  parent = workflow(root, id);
   const recovered = acceptedArchiveForWorkflow(root, id);
   let archive: unknown = parent.meta.data.archive ?? recovered?.publication ?? null;
   if (managerCompleted && readArchivePolicy(root)?.enabled) {
@@ -1002,7 +1315,16 @@ function finishWorkflowClaimed(
       atomicWrite(
         intentPath,
         JSON.stringify(
-          { workflow_id: id, report_id: reportId, snapshot_id: snapshot.snapshot_id },
+          {
+            ...(existsSync(intentPath)
+              ? JSON.parse(readFileSync(intentPath, 'utf8'))
+              : savedClosureIntent),
+            workflow_id: id,
+            report_id: reportId,
+            closure_inputs: closureInputs,
+            closure_inputs_hash: closureInputsHash,
+            snapshot_id: snapshot.snapshot_id,
+          },
           null,
           2,
         ) + '\n',
@@ -1021,12 +1343,6 @@ function finishWorkflowClaimed(
           ) + '\n',
         );
       // Publication intents live outside frozen records so an interrupted write can retry the same snapshot.
-      return {
-        ...(workflowStatus(root, id) as object),
-        phase: 'completed-with-blockers',
-        final_report: body,
-        publication_blockers: blockers,
-      };
     }
   }
   updateRecord(
@@ -1035,13 +1351,20 @@ function finishWorkflowClaimed(
     {
       status: 'verified',
       data: {
-        phase: blockers.length
-          ? 'completed-with-blockers'
-          : managerCompleted
-            ? 'completed'
-            : 'awaiting-native-completion',
+        phase: managerCompleted
+          ? blockers.length
+            ? 'completed-with-blockers'
+            : 'completed'
+          : 'awaiting-native-completion',
         closed_at: now(),
         final_report_id: reportId,
+        local_delivery: localDelivery,
+        publication_disposition: {
+          ...contributionDisposition,
+          status: blockers.length ? 'blocked' : contributionDisposition.status,
+          blockers,
+          archive: archive ?? { status: 'not-published' },
+        },
         knowledge_ids: knowledgeIds,
         no_lesson_reason: noLessonReason ?? null,
         publications,
@@ -1051,13 +1374,17 @@ function finishWorkflowClaimed(
           ...(Array.isArray(parent.meta.data.publication_retirements)
             ? parent.meta.data.publication_retirements
             : []),
-          ...retired.map((disposition) => ({
-            ...disposition,
-            retired_at: now(),
-            previous_publications: publicationHistory
-              .flatMap((entry) => entry.publications)
-              .filter((p: Record<string, unknown>) => p.knowledge_id === disposition.knowledge_id),
-          })),
+          ...retired
+            .filter((disposition) => !savedRetirementReasons.has(disposition.knowledge_id))
+            .map((disposition) => ({
+              ...disposition,
+              retired_at: now(),
+              previous_publications: publicationHistory
+                .flatMap((entry) => entry.publications)
+                .filter(
+                  (p: Record<string, unknown>) => p.knowledge_id === disposition.knowledge_id,
+                ),
+            })),
         ],
       },
     },

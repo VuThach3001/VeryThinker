@@ -628,6 +628,14 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
           if (receipt) {
             if (!readOnly && receipt.state !== 'running')
               throw new Error('New MCP mutations require a currently running native invocation.');
+            if (
+              name === 'native_wait' &&
+              typeof input.invocation_id === 'string' &&
+              input.invocation_id === receipt.id
+            )
+              throw new Error(
+                'A bound invocation cannot wait for its own inference completion. Submit your work report, then return control; the coordinator waits on other workers.',
+              );
             if (name === 'manager_run' || name === 'manager_begin')
               throw new Error(
                 'A bound invocation must resume its existing workflow; recursive intake is forbidden.',
@@ -1324,14 +1332,14 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
   );
   tool(
     'native_wait',
-    'Wait at most 60 seconds for an owned invocation; returns persisted state and applicable workflow status.',
+    'Wait at most 60 seconds for an owned invocation; a bound caller cannot wait for its own inference to complete.',
     { invocation_id: z.string(), wait_ms: z.number().int().min(0).max(60000).optional() },
     async (i) => {
       scopedInvocation(i.invocation_id);
-      const receipt = await waitNative(root, i.invocation_id, i.wait_ms);
+      const waited = await waitNative(root, i.invocation_id, i.wait_ms);
       return {
-        invocation: receipt,
-        ...(receipt.workflow_id ? { workflow: workflowStatus(root, receipt.workflow_id) } : {}),
+        invocation: waited,
+        ...(waited.workflow_id ? { workflow: workflowStatus(root, waited.workflow_id) } : {}),
       };
     },
   );

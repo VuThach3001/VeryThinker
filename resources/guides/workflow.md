@@ -31,6 +31,8 @@ Resolve `economy`, `balanced`, and `strong` tiers against the selected platform'
 
 Escalate missing inputs, contradictory requirements, interface changes, work outside scope, or evidence that cannot support the criterion. After one repair attempt, repeated failure returns to the manager for stronger assistance, re-scoping, or a documented blocked state.
 
+A bound worker cannot wait for its own inference to finish. Inspect its receipt with `native_status`, submit the current work report, and return control; the coordinator waits on other workers. A self-wait request is rejected immediately so a worker cannot spend its bounded turn waiting on itself.
+
 ## Review and finish
 
 Use a separate reviewer invocation from implementation. The reviewer reads requirements, relevant engineering standards, the actual deliverable, required documentation, work record, checks, and evidence. Record findings with locations and reasons; resolve each finding or obtain a documented owner disposition.
@@ -41,6 +43,6 @@ Finish with accepted task state and a resumption note: current baseline, task st
 
 ## Recover
 
-After interruption, inspect task state, latest work records, the working tree, and existing evidence. Continue from the latest verified checkpoint. Re-run checks whose revision or environment no longer applies. Historical logs remain historical; assess their applicability before reuse.
+After interruption, inspect task state, latest work records, the working tree, and existing evidence. Continue from the latest verified checkpoint. Repair a deterministic core, schema, configuration, or environment fault within the assignment when the cause and fix are bounded. Keep earlier interrupted histories and failures as historical evidence; resumed claims need current applicable evidence. Do not restart a live worker solely because its latest output message is old while its records continue to advance, and do not add repair/review rounds without a concrete finding. Produce requested local deliverables and continue independent work if an optional provider or publication service fails; report service limits and real credential, trust, or permission blockers. Ask one consolidated question for material product-intent uncertainty. Re-run checks whose revision or environment no longer applies.
 
 Use `verythinker --help` as the source of truth for command arguments. The CLI and MCP expose the same core operations.

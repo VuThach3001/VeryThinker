@@ -1,5 +1,6 @@
 import { createPublicKey, verify } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { ensureNativeTrustFiles } from './trust.js';
 import {
   atomicWrite,
   getRecord,
@@ -245,6 +246,11 @@ export function readInvocation(root: string, id: string): NativeReceipt {
     !/^[a-f0-9]{64}$/.test(value.key_id)
   )
     throw new Error('Native invocation receipt identity is invalid.');
+  if (
+    !existsSync(safePath(root, '.verythinker/native/trust.json')) ||
+    !existsSync(safePath(root, `.verythinker/native/keys/${value.key_id}.pem`))
+  )
+    ensureNativeTrustFiles(root);
   const trusted = JSON.parse(
     readFileSync(safePath(root, '.verythinker/native/trust.json'), 'utf8'),
   ) as { keys: string[] };
@@ -402,4 +408,27 @@ export function assertRouting(
   const errors = routingProblems(root, role, invocationId, binding);
   if (errors.length) throw new Error(errors.join(' '));
   return invocationId && readRoutingPolicy(root) ? readInvocation(root, invocationId) : null;
+}
+
+/** Validate a signed terminal attempt for history only, never for successful execution gates. */
+export function assertTerminalHistory(
+  root: string,
+  role: string,
+  invocationId: string,
+  binding: { workflow_id: string; task_id: string | null },
+): NativeReceipt {
+  const receipt = readInvocation(root, invocationId);
+  if (
+    receipt.role !== role ||
+    receipt.workflow_id !== binding.workflow_id ||
+    receipt.task_id !== binding.task_id
+  )
+    throw new Error(
+      `Covered invocation ${invocationId} belongs to another role, workflow, or task.`,
+    );
+  if (!['completed', 'failed', 'interrupted', 'blocked', 'orphaned'].includes(receipt.state))
+    throw new Error(
+      `Covered invocation ${invocationId} is still ${receipt.state}; report it after it ends.`,
+    );
+  return receipt;
 }
