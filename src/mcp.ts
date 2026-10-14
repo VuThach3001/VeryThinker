@@ -46,6 +46,7 @@ import {
   finishWorkflow,
   workflowStatus,
   acknowledgeManagerInvocation,
+  applyManagerContinuations,
   type WorkflowInput,
 } from './manager.js';
 import {
@@ -839,6 +840,18 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
           'Manager acknowledgment requires the running signed manager coordinator invocation, with no task assignment, for the same workflow.',
         );
       return acknowledgeManagerInvocation(root, i.workflow_id, receipt.id);
+    },
+    false,
+  );
+  tool(
+    'manager_apply_continuations',
+    'Record the active manager’s explicit disposition of exact queued continuations after reassessment. Identity is taken from the signed bound manager receipt.',
+    { workflow_id: z.string(), continuation_ids: z.array(z.string()), rationale: z.string(), source_ids: z.array(z.string()) },
+    (i) => {
+      const receipt = bound();
+      if (!receipt || receipt.role !== 'manager' || receipt.task_id !== null || receipt.workflow_id !== i.workflow_id)
+        throw new Error('Continuation disposition requires the bound taskless manager for the same workflow.');
+      return applyManagerContinuations(root, i.workflow_id, receipt.id, i);
     },
     false,
   );

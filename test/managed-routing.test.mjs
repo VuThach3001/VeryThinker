@@ -222,8 +222,11 @@ test('all twelve roles discover shared documentation, assigned editing, lifecycl
   assert.ok(!reviewer.operations.includes('task_accept'));
   assert.ok(!reviewer.operations.includes('archive_publish'));
   assert.ok(roleCapabilities('manager').operations.includes('manager_acknowledge'));
-  for (const role of roles.filter((role) => role !== 'manager'))
+  assert.ok(roleCapabilities('manager').operations.includes('manager_apply_continuations'));
+  for (const role of roles.filter((role) => role !== 'manager')) {
     assert.ok(!roleCapabilities(role).operations.includes('manager_acknowledge'), role);
+    assert.ok(!roleCapabilities(role).operations.includes('manager_apply_continuations'), role);
+  }
   writeFileSync(
     join(root, '.verythinker/tools.json'),
     JSON.stringify({

@@ -294,6 +294,74 @@ export function acknowledgeManagerInvocation(
     );
   return bindManagerInvocation(root, id, invocationId);
 }
+
+/** Explicitly record a manager's completed disposition of queued user continuations. */
+export function applyManagerContinuations(
+  root: string,
+  id: string,
+  invocationId: string,
+  input: { continuation_ids: string[]; rationale: string; source_ids: string[] },
+): { workflow_id: string; applied_continuation_ids: string[]; pending_continuations: unknown[]; disposition_id: string; revision: number } {
+  return withOperationLock(root, `manager-${hash(id)}`, () => {
+    const parent = workflow(root, id);
+    const receipt = assertRouting(root, 'manager', invocationId, {
+      workflow_id: id,
+      require_completed: false,
+    });
+    if (
+      !receipt || receipt.execution_mode !== 'native' || receipt.state !== 'running' ||
+      receipt.task_id !== null || receipt.requested_model !== 'gpt-6-luna' ||
+      receipt.confirmed_model !== 'gpt-6-luna' || receipt.reasoning_effort !== 'max' ||
+      receipt.confirmed_reasoning_effort !== 'max'
+    ) throw new Error('Continuation disposition requires the running signed Luna/max taskless manager for this workflow.');
+    if (parent.meta.data.invocation_id !== invocationId)
+      throw new Error('Continuation disposition requires the currently acknowledged manager invocation.');
+    if (parent.meta.data.execution_policy === 'fast')
+      throw new Error('Fast workflow continuations require manager_run Standard reassessment.');
+    if (['completed', 'completed-with-blockers'].includes(String(parent.meta.data.phase)) || parent.meta.data.closed_at || parent.meta.status === 'accepted')
+      throw new Error('A closed workflow requires manager_run continuation.');
+    const ids = input.continuation_ids;
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > 32 || ids.some((item) => typeof item !== 'string' || !item.trim()) || new Set(ids).size !== ids.length)
+      throw new Error('Provide 1 to 32 distinct continuation IDs.');
+    const rationale = text(input.rationale, 'Disposition rationale');
+    if (!Array.isArray(input.source_ids) || input.source_ids.length < 1 || input.source_ids.length > 32)
+      throw new Error('Disposition requires 1 to 32 source decision or reassessment references.');
+    const pending = Array.isArray(parent.meta.data.pending_continuations) ? parent.meta.data.pending_continuations : [];
+    const applied = strings(parent.meta.data.applied_continuation_ids);
+    const transfers = Array.isArray(parent.meta.data.continuation_transfers) ? parent.meta.data.continuation_transfers : [];
+    if (ids.some((continuationId) => transfers.some((entry) => entry?.continuation_id === continuationId)))
+      throw new Error('Transferred continuations cannot be applied on this workflow.');
+    if (ids.some((continuationId) => applied.includes(continuationId))) {
+      if (ids.every((continuationId) => applied.includes(continuationId))) {
+        const prior = (Array.isArray(parent.meta.data.continuation_dispositions) ? parent.meta.data.continuation_dispositions : []).find((entry: any) => entry.continuation_ids?.length === ids.length && ids.every((continuationId) => entry.continuation_ids.includes(continuationId)));
+        if (prior) return { workflow_id: id, applied_continuation_ids: applied, pending_continuations: pending.filter((entry: any) => !applied.includes(entry?.id) && !transfers.some((item: any) => item?.continuation_id === entry?.id)), disposition_id: prior.id, revision: parent.meta.revision };
+      }
+      throw new Error('Continuation batch mixes already applied and unapplied IDs.');
+    }
+    if (ids.some((continuationId) => !pending.some((entry: any) => entry?.id === continuationId)))
+      throw new Error('Every continuation ID must be known and pending on this workflow.');
+    const sources = [...new Set(input.source_ids)];
+    const source_baseline: Record<string, { fingerprint: string; revision: number }> = {};
+    for (const sourceId of sources) {
+      const source = getRecord(root, sourceId);
+      if (source.meta.data.workflow_id !== id || !['manager-decision', 'manager-discussion'].includes(String(source.meta.data.kind)))
+        throw new Error(`Source ${sourceId} is not a decision or reassessment record for this workflow.`);
+      source_baseline[sourceId] = { fingerprint: recordFingerprint(source), revision: source.meta.revision };
+    }
+    const disposition = {
+      id: randomUUID(), continuation_ids: [...ids], rationale, source_ids: sources, source_baseline,
+      invocation_id: invocationId, applied_at: now(),
+    };
+    const updated = updateRecord(root, id, { data: {
+      applied_continuation_ids: [...applied, ...ids],
+      continuation_dispositions: [...(Array.isArray(parent.meta.data.continuation_dispositions) ? parent.meta.data.continuation_dispositions : []), disposition],
+    } }, undefined, (current) => {
+      if (current.meta.revision !== parent.meta.revision) throw new Error('Workflow changed before continuation disposition.');
+    });
+    const appliedIds = strings(updated.meta.data.applied_continuation_ids);
+    return { workflow_id: id, applied_continuation_ids: appliedIds, pending_continuations: pending.filter((entry: any) => !appliedIds.includes(entry?.id) && !transfers.some((item: any) => item?.continuation_id === entry?.id)), disposition_id: disposition.id, revision: updated.meta.revision };
+  });
+}
 export const discussionRoles = [
   'researcher',
   'requirements',

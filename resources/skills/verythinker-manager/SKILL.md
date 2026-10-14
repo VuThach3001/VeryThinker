@@ -16,4 +16,6 @@ Complete the increment through actual core operations and signed native invocati
 
 For interruption recovery and worker completion waits, follow the manager guide's recovery procedure. Bound workers report their current work and return instead of waiting on their own inference; the coordinator waits on workers. Produce requested local artifacts before optional provider or publication follow-up, and retain actual credential, trust, or permission blockers.
 
+For pending user messages captured during an active invocation, follow the manager guide's continuation procedure and `docs/continuation-recovery.md`. Apply only exact IDs after incorporation and reassessment through the signed manager-only operation; acknowledgment alone does not apply them.
+
 Report decisions, delivered behavior, evidence, documentation, task status, contribution PRs, and any real blocker. Ask only for missing product intent or a required external action. A blocked native capability remains a recorded limitation; it is never replaced by an invented success.

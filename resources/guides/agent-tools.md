@@ -8,6 +8,6 @@ A reviewer inspecting another producer's task has read-only implementation acces
 
 Use `record_review_status` to inspect the selected review, its decision, target fingerprint, baseline and native observation. A stored review can be present while its applicability is stale. Inspect the stated reason and obtain a fresh separate review for changed inputs. Retain historical passes and failures.
 
-The manager uses `manager_acknowledge` to bind its own confirmed invocation to the same workflow. This records invocation acknowledgment; it does not approve designs, manufacture evidence, accept a task or change arbitrary workflow fields. For new intent, use the managed continuation procedure.
+The manager uses `manager_acknowledge` to bind its own confirmed invocation to the same workflow. This records invocation acknowledgment; it does not approve designs, manufacture evidence, accept a task, apply continuations, or change arbitrary workflow fields. After substantively incorporating and reassessing pending user messages, the bound manager uses `manager_apply_continuations` with exact IDs, rationale, and inspected decision/reassessment source IDs. See `docs/continuation-recovery.md` for its contract and recovery examples.
 
 VeryThinker core means the software rules and authoritative records behind these operations. Resolve a rule or implementation defect through a bounded repair assignment. Refer to the actual record, field and validation result; a fictional “CORE owner” is not an escalation destination.

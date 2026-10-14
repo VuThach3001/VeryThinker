@@ -138,6 +138,7 @@ const roles: Record<string, Omit<RoleCapabilities, 'role'>> = {
       'contribution_prepare',
       'contribution_submit',
       'manager_acknowledge',
+      'manager_apply_continuations',
     ],
     providers: sharedProviders,
     required: ['engineering-core', 'native-coordination'],

@@ -38,6 +38,7 @@ import {
   decideWorkflow,
   workflowStatus,
   finishWorkflow,
+  applyManagerContinuations,
 } from './manager.js';
 import {
   startNative,
@@ -68,7 +69,7 @@ Usage: verythinker <command> [action] [id] [options]
   doctor | update
   workflow begin --requirement TEXT [--title TITLE] [--request-id ID]
   workflow run --requirement TEXT | --data '{"requirements":["..."]}'
-  workflow discuss|decide|finish WORKFLOW_ID --data JSON | workflow status [WORKFLOW_ID]
+  workflow discuss|decide|finish WORKFLOW_ID --data JSON | workflow apply-continuations WORKFLOW_ID --data JSON | workflow status [WORKFLOW_ID]
   record create TYPE --title TITLE --owner ROLE --data JSON [--body FILE]
   record update ID --data JSON [--body FILE] | record show ID | record list [--type TYPE]
   task create --title TITLE --owner ROLE --requires IDS --acceptance JSON --paths JSON
@@ -288,7 +289,15 @@ async function main(): Promise<void> {
         result = discussWorkflow(root, needed(id, 'Workflow ID'), data() as never);
       else if (action === 'decide')
         result = decideWorkflow(root, needed(id, 'Workflow ID'), data() as never);
-      else if (action === 'finish')
+      else if (action === 'apply-continuations') {
+        const input = data();
+        result = applyManagerContinuations(
+          root,
+          needed(id, 'Workflow ID'),
+          needed(input.invocation_id, 'invocation_id'),
+          input as never,
+        );
+      } else if (action === 'finish')
         result = finishWorkflow(root, needed(id, 'Workflow ID'), data());
       else throw new Error('Unknown workflow action.');
       break;
