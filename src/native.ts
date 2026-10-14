@@ -40,11 +40,17 @@ import {
   readRoutingPolicy,
   requireRoutingPolicy,
   roleModelPolicy,
+  expectedNativeSandbox,
   routingConfigurationHashes,
   type NativeReceipt,
   type NativeRole,
 } from './routing.js';
-import { roleCapabilitiesForReceipt, resolveCapabilities, toolCatalog, type ProviderId } from './tools.js';
+import {
+  roleCapabilitiesForReceipt,
+  resolveCapabilities,
+  toolCatalog,
+  type ProviderId,
+} from './tools.js';
 import {
   assertFastProducerReady,
   fastGrantProblems,
@@ -57,22 +63,57 @@ import type { FastSelection } from './fast-policy.js';
 
 /** Core intake seals the original selection before a model receives authority. */
 export function sealFastSelection(root: string, selection: FastSelection): void {
-  const path = safePath(root, `.verythinker/native/fast-selections/${hash(selection.workflow_id)}.json`);
-  if (existsSync(path)) { assertFastSelectionSeal(root, selection); return; }
+  const path = safePath(
+    root,
+    `.verythinker/native/fast-selections/${hash(selection.workflow_id)}.json`,
+  );
+  if (existsSync(path)) {
+    assertFastSelectionSeal(root, selection);
+    return;
+  }
   const key = receiptKey(root);
-  const unsigned = { schema_version: 1, project_id: readConfig(root).project_id, selection, key_id: key.id };
-  const signature = sign(null, Buffer.from(canonicalJson(unsigned)), createPrivateKey(key.privateKey)).toString('base64');
+  const unsigned = {
+    schema_version: 1,
+    project_id: readConfig(root).project_id,
+    selection,
+    key_id: key.id,
+  };
+  const signature = sign(
+    null,
+    Buffer.from(canonicalJson(unsigned)),
+    createPrivateKey(key.privateKey),
+  ).toString('base64');
   atomicWrite(path, JSON.stringify({ ...unsigned, signature }, null, 2) + '\n');
 }
 export function assertFastSelectionSeal(root: string, selection: FastSelection): void {
-  const path = safePath(root, `.verythinker/native/fast-selections/${hash(selection.workflow_id)}.json`);
+  const path = safePath(
+    root,
+    `.verythinker/native/fast-selections/${hash(selection.workflow_id)}.json`,
+  );
   const proof = JSON.parse(readFileSync(path, 'utf8'));
   const { signature, ...unsigned } = proof;
-  if (proof.schema_version !== 1 || proof.project_id !== readConfig(root).project_id || canonicalJson(proof.selection) !== canonicalJson(selection) || !/^[a-f0-9]{64}$/.test(proof.key_id))
+  if (
+    proof.schema_version !== 1 ||
+    proof.project_id !== readConfig(root).project_id ||
+    canonicalJson(proof.selection) !== canonicalJson(selection) ||
+    !/^[a-f0-9]{64}$/.test(proof.key_id)
+  )
     throw new Error('The Fast selection differs from its signed intake snapshot.');
   const trust = JSON.parse(readFileSync(safePath(root, '.verythinker/native/trust.json'), 'utf8'));
-  const publicBytes = readFileSync(safePath(root, `.verythinker/native/keys/${proof.key_id}.pem`), 'utf8');
-  if (!trust.keys?.includes(proof.key_id) || hash(publicBytes) !== proof.key_id || !verify(null, Buffer.from(canonicalJson(unsigned)), createPublicKey(publicBytes), Buffer.from(signature, 'base64')))
+  const publicBytes = readFileSync(
+    safePath(root, `.verythinker/native/keys/${proof.key_id}.pem`),
+    'utf8',
+  );
+  if (
+    !trust.keys?.includes(proof.key_id) ||
+    hash(publicBytes) !== proof.key_id ||
+    !verify(
+      null,
+      Buffer.from(canonicalJson(unsigned)),
+      createPublicKey(publicBytes),
+      Buffer.from(signature, 'base64'),
+    )
+  )
     throw new Error('The Fast selection snapshot cannot be authenticated.');
 }
 
@@ -785,6 +826,8 @@ class NativeSession {
     const cli = fileURLToPath(new URL('./cli.js', import.meta.url));
     const contract = roleCapabilitiesForReceipt(this.root, this.receipt);
     const operations = contract.operations;
+    const requestedSandbox = expectedNativeSandbox(this.root, this.receipt);
+    this.update({ requested_sandbox: requestedSandbox });
     const previousGateway = this.baseConfiguration.mcp_servers?.verythinker ?? {};
     for (const operation of operations) {
       const explicit = previousGateway.tools?.[operation]?.approval_mode;
@@ -809,15 +852,28 @@ class NativeSession {
       );
     let fastContext = Boolean(this.receipt.fast_grant);
     if (!fastContext && this.receipt.role === 'reviewer' && this.receipt.workflow_id) {
-      try { fastContext = getRecord(this.root, this.receipt.workflow_id).meta.data.execution_policy === 'fast'; }
-      catch { /* Unresolved or fixture bindings retain their ordinary role instructions. */ }
+      try {
+        fastContext =
+          getRecord(this.root, this.receipt.workflow_id).meta.data.execution_policy === 'fast';
+      } catch {
+        /* Unresolved or fixture bindings retain their ordinary role instructions. */
+      }
     }
     // A composite planning stage is not the full Standard coordinator. Loading
     // contradictory delegation/closure instructions wastes turns and cannot
     // grant those operations. Current core gates and exact routing are unchanged.
     const instructionPaths = fastContext
-      ? [...(this.receipt.fast_grant?.stage === 'planner' ? [] : [`roles/${this.receipt.role}.md`]), 'guides/fast-workflow.md']
-      : [`roles/${this.receipt.role}.md`, 'guides/workflow.md', ...(this.receipt.role === 'manager' ? ['guides/manager.md'] : [])];
+      ? [
+          ...(this.receipt.fast_grant?.stage === 'planner'
+            ? []
+            : [`roles/${this.receipt.role}.md`]),
+          'guides/fast-workflow.md',
+        ]
+      : [
+          `roles/${this.receipt.role}.md`,
+          'guides/workflow.md',
+          ...(this.receipt.role === 'manager' ? ['guides/manager.md'] : []),
+        ];
     const instructions = instructionPaths
       .map((path) => {
         const installed = safePath(this.root, `.verythinker/${path}`);
@@ -839,10 +895,14 @@ class NativeSession {
         ? ' This invocation has a core-issued Fast planner grant: combine requirements, architecture and verification strategy in ONE scoped planning artifact. Do not delegate specialists or execute implementation. The core owns independent plan review, production, final review and closure. Use fast_plan_submit last; do not call manager_decide or manager_finish. Your actual native role remains manager and performed responsibilities are derived by the gateway.'
         : ' This invocation has a core-issued Fast producer grant: implement only the reviewed task and execute its prescribed checks. Use task_start (or task_resume for persisted interrupted work), task_file_write, check_run/check_inspect and task_submit. Do not change planning artifacts, protected expectations or review your work. The core owns final independent review and closure.'
       : '';
+    const sandboxGuidance =
+      expectedNativeSandbox(this.root, this.receipt) === 'readOnly'
+        ? " This invocation has read-only native workspace access because it is unbound as a reviewer or is reviewing another role's task. Do not edit the material under review."
+        : ' This invocation has workspace editing and command execution available. Native filesystem access does not enforce task allowed_paths; use the invocation-bound task_file_write gateway for project changes, and stay within the assigned task paths and prescribed checks.';
     const params = {
       model: this.receipt.requested_model,
       cwd: this.root,
-      ...(spec.strong ? { sandbox: 'read-only' } : {}),
+      sandbox: requestedSandbox === 'readOnly' ? 'read-only' : 'workspace-write',
       config: {
         model_reasoning_effort: spec.reasoning_effort,
         'mcp_servers.verythinker': {
@@ -854,7 +914,7 @@ class NativeSession {
           ),
         },
       },
-      developerInstructions: `VeryThinker native invocation ${this.receipt.id}; role ${this.receipt.role}; workflow ${this.receipt.workflow_id ?? 'unassigned'}; task ${this.receipt.task_id ?? 'unassigned'}. Use the invocation-bound VeryThinker MCP operations. Work only within your role and task contract. Do not invoke manager_run recursively. The manager has already created the workflow. Every durable change and review must reference this invocation. Before ending your assignment, call assignment_report with substantive Objective, Inputs and Sources, Decisions and Rationale, Results, Evidence, Limitations, and Lessons sections. A producer's task_submit with the full seven-section work_record satisfies this reporting requirement instead. Reviewers report after their actual review; check executors report after executing checks and inspecting the result. For a follow-up report, explicitly list any covered prior invocation IDs of your own role and assignment. Do not fabricate another agent's narrative. Native authorization belongs to the existing client policy.${authoringGuidance}${fastGuidance} The installed role and workflow instructions are included below; use MCP record and recipe operations to inspect engineering state rather than shell commands just to reload these instructions.${instructions}`,
+      developerInstructions: `VeryThinker native invocation ${this.receipt.id}; role ${this.receipt.role}; workflow ${this.receipt.workflow_id ?? 'unassigned'}; task ${this.receipt.task_id ?? 'unassigned'}. Use the invocation-bound VeryThinker MCP operations. Work only within your role and task contract. Do not invoke manager_run recursively. The manager has already created the workflow. Every durable change and review must reference this invocation. Before ending your assignment, call assignment_report with substantive Objective, Inputs and Sources, Decisions and Rationale, Results, Evidence, Limitations, and Lessons sections. A producer's task_submit with the full seven-section work_record satisfies this reporting requirement instead. Reviewers report after their actual review; check executors report after executing checks and inspecting the result. For a follow-up report, explicitly list any covered prior invocation IDs of your own role and assignment. Do not fabricate another agent's narrative. Native authorization belongs to the existing client policy.${sandboxGuidance}${authoringGuidance}${fastGuidance} The installed role and workflow instructions are included below; use MCP record and recipe operations to inspect engineering state rather than shell commands just to reload these instructions.${instructions}`,
     };
     let ack: any;
     this.update({
@@ -883,9 +943,9 @@ class NativeSession {
     validateAcknowledgment(ack, this.root, this.receipt.requested_model, spec.reasoning_effort);
     if (resumeThread && ack.thread.id !== resumeThread)
       throw new Error('Native resume acknowledged a different thread identity.');
-    if (spec.strong && ack.sandbox?.type !== 'readOnly')
+    if (ack.sandbox?.type !== requestedSandbox)
       throw new Error(
-        'The native client did not acknowledge read-only shell access for the strategic role.',
+        'The native client did not acknowledge the sandbox required for this role assignment.',
       );
     this.update({
       confirmed_model: ack.model,
@@ -907,7 +967,9 @@ class NativeSession {
         throw new Error('Native resume did not return bounded turn metadata.');
       const running = page.data.filter((turn: any) => turn.status === 'inProgress');
       if (ack.thread.status?.type === 'active' && running.length === 0)
-        throw new Error('The active native thread could not be reconciled from recent turn metadata.');
+        throw new Error(
+          'The active native thread could not be reconciled from recent turn metadata.',
+        );
       for (const turn of running) {
         await transport.request('turn/interrupt', { threadId: resumeThread, turnId: turn.id });
         const completed = await Promise.race([
@@ -977,7 +1039,8 @@ class NativeSession {
         return this.settle('blocked', 'Native configuration changed during inference.');
       this.update({ state: 'completed', inference_completed: true, error: null });
       if (
-        this.receipt.role === 'manager' && this.receipt.workflow_id &&
+        this.receipt.role === 'manager' &&
+        this.receipt.workflow_id &&
         this.receipt.fast_grant?.stage !== 'planner'
       ) {
         try {
@@ -1045,6 +1108,7 @@ function newReceipt(root: string, input: NativeStartInput, prior?: NativeReceipt
     requested_model: spec.models[0]!,
     confirmed_model: null,
     model_provider: null,
+    requested_sandbox: null,
     native_sandbox: null,
     native_tool_scope: [],
     gateway_policy_sha256: null,
@@ -1081,9 +1145,20 @@ function requireCurrentRouting(root: string): void {
     );
 }
 /** Uncertain owners quarantine overlapping execution, not unrelated read-only planning. */
-export function nativeScopeConflict(root: string, input: NativeStartInput, prior: NativeReceipt): boolean {
-  if (!input.workflow_id || !prior.workflow_id || input.workflow_id === prior.workflow_id) return true;
-  if (!input.task_id && ['manager', 'requirements', 'architect', 'component-owner', 'verifier', 'reviewer'].includes(input.role)) return false;
+export function nativeScopeConflict(
+  root: string,
+  input: NativeStartInput,
+  prior: NativeReceipt,
+): boolean {
+  if (!input.workflow_id || !prior.workflow_id || input.workflow_id === prior.workflow_id)
+    return true;
+  if (
+    !input.task_id &&
+    ['manager', 'requirements', 'architect', 'component-owner', 'verifier', 'reviewer'].includes(
+      input.role,
+    )
+  )
+    return false;
   // Assigned write paths cannot establish isolation for compilers, scripts,
   // simulators or shared tool state. Uncertain execution remains quarantined
   // until its transport is demonstrably absent or owned control resolves it.
@@ -1116,7 +1191,9 @@ async function startOwned(
     }
     requireCurrentRouting(root);
     const running = receipts.filter((receipt) => invocationIsActive(receipt));
-    const abandoned = running.find((receipt) => !ownerIsAlive(receipt.owner_pid) && nativeScopeConflict(root, input, receipt));
+    const abandoned = running.find(
+      (receipt) => !ownerIsAlive(receipt.owner_pid) && nativeScopeConflict(root, input, receipt),
+    );
     if (abandoned)
       throw new Error(
         `Native invocation ${abandoned.id} has an absent owner; reconcile it before dispatching more work.`,
@@ -1131,12 +1208,13 @@ async function startOwned(
     const created = newReceipt(root, input, prior);
     if (options.runtime) created.execution_mode = 'protocol-fixture';
     if (options.fast_stage) {
-      if (options.runtime) throw new Error('Fast stage grants cannot be minted for protocol fixtures.');
+      if (options.runtime)
+        throw new Error('Fast stage grants cannot be minted for protocol fixtures.');
       created.fast_grant = issueFastGrant(
         root,
         created,
         options.fast_stage,
-        options.fast_stage === 'producer' ? input.task_id ?? null : null,
+        options.fast_stage === 'producer' ? (input.task_id ?? null) : null,
       );
     }
     persist(root, created, options.provisioning_hook);
@@ -1195,8 +1273,7 @@ export async function startFastNative(
   const role = stage === 'planner' ? 'manager' : 'developer';
   if (input.role !== role)
     throw new Error(`Fast ${stage} stage must retain the standard ${role} base role.`);
-  if (!input.workflow_id)
-    throw new Error('Fast native stage requires an exact workflow binding.');
+  if (!input.workflow_id) throw new Error('Fast native stage requires an exact workflow binding.');
   if (stage === 'planner' && input.task_id)
     throw new Error('Fast planner authority is workflow scoped and cannot bind to a task.');
   if (stage === 'producer') {
@@ -1267,7 +1344,8 @@ export function reconcileNativeOrphans(
   invocationIds: string[],
   authorization: 'managed-intake',
 ): OrphanReconcileResult {
-  if (authorization !== 'managed-intake') throw new Error('Orphan reconciliation is reserved for managed intake.');
+  if (authorization !== 'managed-intake')
+    throw new Error('Orphan reconciliation is reserved for managed intake.');
   if (!Array.isArray(invocationIds) || !invocationIds.length || invocationIds.length > 32)
     throw new Error('Orphan reconciliation requires 1 to 32 explicit invocation IDs.');
   root = resolve(root);
@@ -1281,7 +1359,10 @@ export function reconcileNativeOrphans(
       continue;
     }
     if (!receipt.server_pid || ownerIsAlive(receipt.server_pid)) {
-      quarantined.push({ invocation_id: id, reason: 'Native transport is live or its liveness is uncertain.' });
+      quarantined.push({
+        invocation_id: id,
+        reason: 'Native transport is live or its liveness is uncertain.',
+      });
       continue;
     }
     const priorBytes = readFileSync(nativeReceiptPath(root, id));
@@ -1298,14 +1379,18 @@ export function reconcileNativeOrphans(
     });
     receipt.state = 'orphaned';
     receipt.inference_completed = false;
-    receipt.error = 'Managed intake reconciled an absent owner and absent native transport; prior signed bytes are preserved in the reconciliation audit event.';
+    receipt.error =
+      'Managed intake reconciled an absent owner and absent native transport; prior signed bytes are preserved in the reconciliation audit event.';
     persist(root, receipt);
     reconciled.push(id);
   }
   return { reconciled, quarantined };
 }
 /** Find only a signed same-assignment ancestor; never invent a thread acknowledgment. */
-export function nativeResumeTarget(root: string, receipt: NativeReceipt): NativeReceipt | undefined {
+export function nativeResumeTarget(
+  root: string,
+  receipt: NativeReceipt,
+): NativeReceipt | undefined {
   if (receipt.native_thread_id) return receipt;
   const visited = new Set([receipt.id]);
   let current = receipt;
@@ -1317,17 +1402,23 @@ export function nativeResumeTarget(root: string, receipt: NativeReceipt): Native
     visited.add(id);
     const ancestor = readInvocation(root, id);
     if (
-      ancestor.project_id !== receipt.project_id || ancestor.role !== receipt.role ||
-      ancestor.workflow_id !== receipt.workflow_id || ancestor.task_id !== receipt.task_id
-    ) throw new Error('Native resume lineage belongs to another assignment.');
+      ancestor.project_id !== receipt.project_id ||
+      ancestor.role !== receipt.role ||
+      ancestor.workflow_id !== receipt.workflow_id ||
+      ancestor.task_id !== receipt.task_id
+    )
+      throw new Error('Native resume lineage belongs to another assignment.');
     if (ancestor.native_thread_id) {
       if (ancestor.state !== 'completed' || !ancestor.inference_completed)
-        throw new Error('The acknowledged ancestor must be completed before retrying a failed resume.');
+        throw new Error(
+          'The acknowledged ancestor must be completed before retrying a failed resume.',
+        );
       return ancestor;
     }
     current = ancestor;
   }
-  if (current.prior_invocation_id) throw new Error('Native resume lineage exceeds its bounded depth.');
+  if (current.prior_invocation_id)
+    throw new Error('Native resume lineage exceeds its bounded depth.');
   return undefined;
 }
 async function resumeOwned(
@@ -1341,7 +1432,9 @@ async function resumeOwned(
   let prior = readInvocation(root, id);
   if (prior.fast_grant) {
     if (options.fast_stage !== prior.fast_grant.stage)
-      throw new Error('Fast invocations must be resumed through the private Fast controller entry.');
+      throw new Error(
+        'Fast invocations must be resumed through the private Fast controller entry.',
+      );
     const grantProblems = fastGrantProblems(root, prior, { historical: true });
     if (grantProblems.length)
       throw new Error(`Prior Fast authority is not valid for resume: ${grantProblems.join('; ')}`);

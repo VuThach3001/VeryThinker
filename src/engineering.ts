@@ -105,6 +105,71 @@ function workerInvocations(record: ProjectRecord): string[] {
     ...(typeof current === 'string' ? [current] : []),
   ];
 }
+function independentReviewOwner(
+  root: string,
+  target: ProjectRecord,
+  owner: string,
+  invocationId: unknown,
+): boolean {
+  if (owner !== target.meta.owner) return true;
+  // A role label is not an agent identity. Same-role documentation still needs
+  // genuine producer provenance and an independent read-only reviewer thread.
+  if (
+    owner !== 'reviewer' ||
+    target.meta.type !== 'task' ||
+    !strictRecord(root, target) ||
+    typeof invocationId !== 'string'
+  )
+    return false;
+  try {
+    const binding = invocationBinding(target);
+    if (!binding.workflow_id || typeof target.meta.data.invocation_id !== 'string') return false;
+    const reviewer = assertRouting(root, 'reviewer', invocationId, {
+      ...binding,
+      require_completed: false,
+    });
+    const author = assertRouting(root, 'reviewer', target.meta.data.invocation_id, binding);
+    if (
+      !reviewer ||
+      !author ||
+      reviewer.task_id !== null ||
+      !reviewer.native_thread_id ||
+      !author.native_thread_id
+    )
+      return false;
+    const reviewerLineage = new Set<string>();
+    let next: string | null = reviewer.id;
+    for (let depth = 0; next && depth < 32; depth++) {
+      if (reviewerLineage.has(next)) return false;
+      reviewerLineage.add(next);
+      const receipt = readInvocation(root, next);
+      if (
+        receipt.execution_mode !== 'native' ||
+        receipt.role !== 'reviewer' ||
+        receipt.workflow_id !== binding.workflow_id ||
+        receipt.native_thread_id !== reviewer.native_thread_id
+      )
+        return false;
+      next = receipt.prior_invocation_id;
+    }
+    if (next) return false;
+    for (const id of workerInvocations(target)) {
+      const producer = readInvocation(root, id);
+      if (
+        producer.execution_mode !== 'native' ||
+        producer.role !== 'reviewer' ||
+        producer.workflow_id !== binding.workflow_id ||
+        (binding.task_id && producer.task_id !== binding.task_id) ||
+        reviewerLineage.has(id) ||
+        producer.native_thread_id === reviewer.native_thread_id
+      )
+        return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 function escalationProblems(root: string, task: ProjectRecord): string[] {
   const attempts = Number(task.meta.data.attempts ?? 0);
   if (attempts <= readConfig(root).repair_attempts && task.meta.data.escalation_required !== true)
@@ -740,14 +805,31 @@ function latestEvidence(
         b.meta.created_at.localeCompare(a.meta.created_at) || b.meta.id.localeCompare(a.meta.id),
     )[0];
 }
-function hasReview(root: string, target: ProjectRecord, records: ProjectRecord[]): boolean {
-  if (strictRecord(root, target) && !readRoutingPolicy(root)) return false;
-  let baseline: string;
-  try {
-    baseline = reviewBaseline(root, target, records);
-  } catch {
-    return false;
-  }
+export interface ReviewStatus {
+  target_id: string;
+  candidate_ids: string[];
+  selected_id: string | null;
+  stored_target_fingerprint: string | null;
+  current_target_fingerprint: string;
+  stored_baseline_hash: string | null;
+  current_baseline_hash: string | null;
+  stored_baseline_version: number | null;
+  current_baseline_version: 2;
+  decision: string | null;
+  findings: string[];
+  reasons: { code: string; message: string }[];
+  native_routing_reasons: string[];
+  current: boolean;
+  disposition: 'missing' | 'stale' | 'failed' | 'unconfirmed' | 'current';
+}
+const reviewBaselineVersion = 2 as const;
+
+function reviewEvaluation(
+  root: string,
+  target: ProjectRecord,
+  records: ProjectRecord[],
+): ReviewStatus {
+  const currentFingerprint = recordFingerprint(target);
   const reviews = records
     .filter(
       (r) =>
@@ -759,34 +841,192 @@ function hasReview(root: string, target: ProjectRecord, records: ProjectRecord[]
         b.meta.created_at.localeCompare(a.meta.created_at) || b.meta.id.localeCompare(a.meta.id),
     );
   const review = reviews[0];
-  if (review && strictRecord(root, review) && !readRoutingPolicy(root)) return false;
-  if (
+  let baseline: string;
+  try {
+    baseline = reviewBaseline(root, target, records);
+  } catch {
+    baseline = '';
+  }
+  const d = review?.meta.data;
+  const storedFingerprint = typeof d?.target_fingerprint === 'string' ? d.target_fingerprint : null;
+  const storedBaseline = typeof d?.baseline_hash === 'string' ? d.baseline_hash : null;
+  const storedBaselineVersion =
+    typeof d?.review_baseline_version === 'number' &&
+    Number.isInteger(d.review_baseline_version) &&
+    d.review_baseline_version > 0
+      ? d.review_baseline_version
+      : null;
+  const findings = strings(d?.findings);
+  const reasons: ReviewStatus['reasons'] = [];
+  const nativeRoutingReasons: string[] = [];
+  const addReason = (code: string, message: string, native = false) => {
+    if (!reasons.some((reason) => reason.code === code && reason.message === message))
+      reasons.push({ code, message });
+    if (native && !nativeRoutingReasons.includes(message)) nativeRoutingReasons.push(message);
+  };
+  if (!review) addReason('latest-review-missing', 'No review is recorded for this target.');
+  if (review && d?.decision === 'fail')
+    addReason('latest-review-failed', 'The selected latest review failed.');
+  else if (review && d?.decision !== 'pass')
+    addReason(
+      'latest-review-unconfirmed',
+      'The selected latest review has no confirmed pass decision.',
+    );
+  const independentOwner = review
+    ? independentReviewOwner(root, target, review.meta.owner, d?.invocation_id)
+    : false;
+  if (review && !independentOwner)
+    addReason(
+      'reviewer-not-independent',
+      'The reviewer needs a different owner or verified independent same-role producer and taskless reviewer threads.',
+    );
+  if (review && (typeof d?.invocation_id !== 'string' || !d.invocation_id.trim()))
+    addReason('receipt-missing', 'The review has no confirmed reviewer invocation identity.', true);
+  else if (review && workerInvocations(target).includes(d!.invocation_id as string))
+    addReason(
+      'reviewer-invocation-reused',
+      'The review used an invocation assigned to the target worker.',
+    );
+  if (review && d?.decision === 'pass' && findings.length)
+    addReason('latest-review-has-findings', 'The passing review contains unresolved findings.');
+  if (review && !storedFingerprint)
+    addReason('target-fingerprint-missing', 'The review does not store a target fingerprint.');
+  else if (review && storedFingerprint !== currentFingerprint)
+    addReason('target-changed', 'The target fingerprint differs from the reviewed target.');
+  if (!baseline.length)
+    addReason('baseline-unavailable', 'The current review baseline could not be computed.');
+  if (review && !storedBaseline)
+    addReason('baseline-hash-missing', 'The review does not store a baseline hash.');
+  else if (review && baseline && storedBaseline !== baseline)
+    addReason('baseline-changed', 'The current baseline hash differs from the reviewed baseline.');
+  const targetRequiresRouting = strictRecord(root, target);
+  const reviewRequiresRouting = review ? strictRecord(root, review) : false;
+  let routingPolicy = null;
+  let routingPolicyReadFailed = false;
+  if (targetRequiresRouting || reviewRequiresRouting) {
+    try {
+      routingPolicy = readRoutingPolicy(root);
+    } catch {
+      routingPolicyReadFailed = true;
+    }
+  }
+  if ((targetRequiresRouting || reviewRequiresRouting) && !routingPolicy)
+    addReason(
+      'native-policy-unavailable',
+      routingPolicyReadFailed
+        ? 'The configured native routing policy is invalid or unavailable.'
+        : 'The configured native routing policy is unavailable.',
+      true,
+    );
+  if (review && (targetRequiresRouting || reviewRequiresRouting)) {
+    try {
+      const problems = routingProblems(
+        root,
+        'reviewer',
+        typeof d?.invocation_id === 'string' ? d.invocation_id : undefined,
+        invocationBinding(target),
+      );
+      for (const problem of problems) {
+        let code = 'native-routing-invalid';
+        let message = 'The reviewer receipt does not satisfy the configured native routing policy.';
+        if (problem.includes('bridge-issued native invocation receipt')) {
+          code = 'receipt-missing';
+          message = 'No confirmed native reviewer receipt is available.';
+        } else if (problem.includes('cannot be verified')) {
+          code = 'receipt-invalid';
+          message = 'The native reviewer receipt could not be verified.';
+        } else if (problem.includes('Protocol fixture')) {
+          code = 'native-provenance-invalid';
+          message = 'The reviewer receipt does not prove authenticated native execution.';
+        } else if (problem.includes('requested model') || problem.includes('Terra requires')) {
+          code = 'model-mismatch';
+          message = 'The reviewer model does not match the permitted native model policy.';
+        } else if (problem.includes('reasoning effort')) {
+          code = 'effort-mismatch';
+          message = 'The reviewer reasoning effort does not match the native role policy.';
+        } else if (
+          problem.includes('configuration changed') ||
+          problem.includes('policy changed')
+        ) {
+          code = 'config-changed';
+          message = 'Native routing configuration changed after the reviewer invocation began.';
+        } else if (problem.includes('pinned runtime')) {
+          code = 'runtime-config-changed';
+          message = 'The reviewer invocation does not match the pinned native runtime.';
+        } else if (problem.includes('different engineering role')) {
+          code = 'reviewer-role-mismatch';
+          message = 'The native invocation belongs to a different engineering role.';
+        } else if (problem.includes('different workflow') || problem.includes('different task')) {
+          code = 'reviewer-scope-mismatch';
+          message = 'The native invocation is bound to a different workflow or task.';
+        } else if (problem.includes('completed successfully')) {
+          code = 'reviewer-incomplete';
+          message = 'Native reviewer inference has not completed successfully.';
+        }
+        addReason(code, message, true);
+      }
+    } catch {
+      addReason(
+        'native-receipt-unverifiable',
+        'Native reviewer provenance could not be verified.',
+        true,
+      );
+    }
+  }
+  const baselineAvailable = baseline.length > 0;
+  const current = Boolean(
     review &&
-    (strictRecord(root, target) || strictRecord(root, review)) &&
-    routingProblems(
-      root,
-      'reviewer',
-      typeof review.meta.data.invocation_id === 'string'
-        ? review.meta.data.invocation_id
-        : undefined,
-      invocationBinding(target),
-    ).length
-  )
-    return false;
-  return Boolean(
-    review &&
-    review.meta.owner !== target.meta.owner &&
-    review.meta.data.decision === 'pass' &&
-    typeof review.meta.data.invocation_id === 'string' &&
-    review.meta.data.invocation_id.trim().length > 0 &&
-    !workerInvocations(target).includes(review.meta.data.invocation_id) &&
-    review.meta.data.target_fingerprint === recordFingerprint(target) &&
-    review.meta.data.baseline_hash === baseline &&
-    strings(review.meta.data.findings).length === 0,
+    baselineAvailable &&
+    (!targetRequiresRouting || Boolean(routingPolicy)) &&
+    (!reviewRequiresRouting || Boolean(routingPolicy)) &&
+    independentOwner &&
+    d?.decision === 'pass' &&
+    typeof d.invocation_id === 'string' &&
+    d.invocation_id.trim().length > 0 &&
+    !workerInvocations(target).includes(d.invocation_id) &&
+    storedFingerprint === currentFingerprint &&
+    storedBaseline === baseline &&
+    findings.length === 0 &&
+    reasons.length === 0,
   );
+  const disposition: ReviewStatus['disposition'] = !review
+    ? 'missing'
+    : d?.decision === 'fail'
+      ? 'failed'
+      : !baselineAvailable ||
+          storedFingerprint !== currentFingerprint ||
+          storedBaseline !== baseline
+        ? 'stale'
+        : current
+          ? 'current'
+          : 'unconfirmed';
+  return {
+    target_id: target.meta.id,
+    candidate_ids: reviews.map((candidate) => candidate.meta.id),
+    selected_id: review?.meta.id ?? null,
+    stored_target_fingerprint: storedFingerprint,
+    current_target_fingerprint: currentFingerprint,
+    stored_baseline_hash: storedBaseline,
+    current_baseline_hash: baselineAvailable ? baseline : null,
+    stored_baseline_version: storedBaselineVersion,
+    current_baseline_version: reviewBaselineVersion,
+    decision: typeof d?.decision === 'string' ? d.decision : null,
+    findings,
+    reasons,
+    native_routing_reasons: nativeRoutingReasons,
+    current,
+    disposition,
+  };
+}
+function hasReview(root: string, target: ProjectRecord, records: ProjectRecord[]): boolean {
+  return reviewEvaluation(root, target, records).current;
 }
 export function hasCurrentReview(root: string, id: string): boolean {
   return hasReview(root, getRecord(root, id), loadRecords(root));
+}
+/** Explain the exact current-review predicate without modifying review history. */
+export function reviewStatus(root: string, id: string): ReviewStatus {
+  return reviewEvaluation(root, getRecord(root, id), loadRecords(root));
 }
 export function assignmentReport(
   root: string,
@@ -1405,8 +1645,13 @@ export function reviewRecord(
     });
   if (target.meta.type === 'task' && !['submitted', 'accepted'].includes(target.meta.status))
     throw new Error('Submit the task before recording its acceptance review.');
-  if (owner === target.meta.owner || workerInvocations(target).includes(invocationId))
-    throw new Error('Review must use a different owner and invocation.');
+  if (
+    !independentReviewOwner(root, target, owner, invocationId) ||
+    workerInvocations(target).includes(invocationId)
+  )
+    throw new Error(
+      'Review must use a different owner and invocation, or a verified independent workflow-bound taskless reviewer for same-role documentation.',
+    );
   if (
     !['pass', 'fail'].includes(decision) ||
     !Array.isArray(findings) ||
@@ -1447,6 +1692,7 @@ export function reviewRecord(
       findings,
       target_fingerprint: targetFingerprint,
       baseline_hash: baseline,
+      review_baseline_version: reviewBaselineVersion,
       invocation_id: invocationId,
       generalization_review: generalizationReview,
     },

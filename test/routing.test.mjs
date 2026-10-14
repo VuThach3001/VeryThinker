@@ -159,6 +159,33 @@ test('xhigh strategic acknowledgment is rejected by the Luna/max receipt gate', 
     routingProblems(root, 'reviewer', id).join(' '),
     /reasoning effort does not match the role policy/,
   );
+  assert.ok(!routingProblems(root, 'reviewer', id).some((problem) => /sandbox/.test(problem)));
+
+  const workerId = randomUUID();
+  const historicalWorker = {
+    ...unsigned,
+    id: workerId,
+    receipt_path: `.verythinker/native/receipts/${workerId}.json`,
+    role: 'researcher',
+    requested_model: 'gpt-6-luna',
+    confirmed_model: 'gpt-6-luna',
+    native_sandbox: null,
+    reasoning_effort: 'medium',
+    confirmed_reasoning_effort: 'medium',
+    native_thread_id: `unit-${workerId}`,
+    native_turn_id: `turn-${workerId}`,
+  };
+  writeFileSync(
+    join(root, historicalWorker.receipt_path),
+    JSON.stringify({
+      ...historicalWorker,
+      signature: sign(null, Buffer.from(canonicalJson(historicalWorker)), keyPair.privateKey).toString('base64'),
+    }),
+  );
+  assert.ok(
+    !routingProblems(root, 'researcher', workerId).some((problem) => /sandbox/.test(problem)),
+    'historical worker receipts without requested_sandbox retain their actual legacy grant',
+  );
 });
 test('all strategic roles use exclusively Luna at max and routine roles use documented worker fallback', (t) => {
   const root = project(t);

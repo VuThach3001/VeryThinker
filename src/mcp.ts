@@ -20,6 +20,7 @@ import {
   contextPacket,
   reviewTask,
   reviewRecord,
+  reviewStatus,
   runCheck,
   inspectCheck,
   recordFingerprint,
@@ -44,7 +45,7 @@ import {
   discussionRoles,
   finishWorkflow,
   workflowStatus,
-  bindManagerInvocation,
+  acknowledgeManagerInvocation,
   type WorkflowInput,
 } from './manager.js';
 import {
@@ -413,11 +414,7 @@ function recordScope(root: string, receipt: NativeReceipt): Set<string> {
   }
   return scope;
 }
-function operationBinding(
-  root: string,
-  operation: string,
-  input: any,
-): FastGrantTarget {
+function operationBinding(root: string, operation: string, input: any): FastGrantTarget {
   const result: FastGrantTarget = { operation };
   if (typeof input.path === 'string') result.path = input.path;
   if (operation === 'record_create') {
@@ -428,11 +425,22 @@ function operationBinding(
   }
   if (operation === 'record_update') result.record_data = input.data ?? {};
   if (operation === 'record_update') result.record_id = input.id;
+  if (operation === 'task_repair') {
+    const task = getRecord(root, input.id);
+    result.task_id = task.meta.id;
+    if (typeof task.meta.data.workflow_id === 'string')
+      result.workflow_id = task.meta.data.workflow_id;
+  }
   if (operation === 'fast_plan_submit') result.task_ids = input.task_ids;
   if (operation === 'recipe_run') result.recipe_instance_id = input.id;
   if (operation === 'note_create') {
     const note = input.note ?? input;
-    result.paths = [note.path, note.practice?.exercise_path, note.practice?.answer_path, note.practice?.solution_path].filter((path): path is string => typeof path === 'string');
+    result.paths = [
+      note.path,
+      note.practice?.exercise_path,
+      note.practice?.answer_path,
+      note.practice?.solution_path,
+    ].filter((path): path is string => typeof path === 'string');
   }
   if (['check_run', 'check_inspect'].includes(operation)) result.check_id = input.id;
   if (typeof input.workflow_id === 'string') result.workflow_id = input.workflow_id;
@@ -481,7 +489,7 @@ function authoredData(
   };
 }
 export function canAuthor(role: string, type: string): boolean {
-  if (type === 'knowledge' || type === 'problem' || type === 'change') return role !== 'reviewer';
+  if (type === 'knowledge' || type === 'problem' || type === 'change') return true;
   if (type === 'requirement') return role === 'requirements';
   if (type === 'design') return ['architect', 'component-owner'].includes(role);
   if (type === 'check') return role === 'verifier';
@@ -596,6 +604,13 @@ export function assertGenericRecordMutation(
   record: ReturnType<typeof getRecord>,
   receipt: NativeReceipt,
 ): void {
+  if (
+    receipt.role === 'reviewer' &&
+    (!receipt.task_id || record.meta.data.task_id !== receipt.task_id)
+  )
+    throw new Error(
+      'Reviewer can update only its own assigned project documentation records through a current producer task; review targets stay read-only.',
+    );
   if (reservedKinds.has(String(record.meta.data.kind)))
     throw new Error(
       'Reserved workflow decisions, submissions, and frozen recipes must use their dedicated core operation.',
@@ -610,11 +625,71 @@ export function assertGenericRecordMutation(
       'developer',
       'check-executor',
       'release',
+      'reviewer',
     ].includes(receipt.role) &&
     (record.meta.owner !== receipt.role ||
       (receipt.task_id && record.meta.data.task_id !== receipt.task_id))
   )
     throw new Error('Worker can update only its own assigned project documentation records.');
+}
+
+export function assertReviewerMutationAuthority(
+  root: string,
+  receipt: NativeReceipt,
+  operation: string,
+): void {
+  if (
+    receipt.role !== 'reviewer' ||
+    [
+      'record_review',
+      'task_review',
+      'assignment_report',
+      'manager_discuss',
+      'capability_resolve',
+      'capability_invoke',
+    ].includes(operation)
+  )
+    return;
+  if (receipt.task_id) {
+    const task = getRecord(root, receipt.task_id);
+    if (
+      task.meta.type === 'task' &&
+      task.meta.owner === 'reviewer' &&
+      (task.meta.data.invocation_id === receipt.id ||
+        ['task_start', 'task_resume'].includes(operation))
+    )
+      return;
+  }
+  throw new Error(
+    'A reviewing invocation has read-only artifact access; documentation edits require its current reviewer-owned producer task.',
+  );
+}
+
+export function assertTaskRepairAuthority(
+  root: string,
+  receipt: NativeReceipt,
+  task: ReturnType<typeof getRecord>,
+): void {
+  if (task.meta.type !== 'task' || task.meta.data.kind === 'manager-workflow')
+    throw new Error('Repair feedback can target only a managed task.');
+  const workflowId = task.meta.data.workflow_id;
+  if (typeof workflowId !== 'string' || receipt.workflow_id !== workflowId)
+    throw new Error('Task repair must stay within the bound assignment workflow.');
+  const workflow = getRecord(root, workflowId);
+  if (workflow.meta.data.kind !== 'manager-workflow')
+    throw new Error('Task repair requires its managed workflow record.');
+  const assignedProducer =
+    receipt.task_id === task.meta.id &&
+    receipt.role === task.meta.owner &&
+    task.meta.data.invocation_id === receipt.id;
+  const managerCoordinator =
+    receipt.role === 'manager' &&
+    receipt.task_id === null &&
+    workflow.meta.data.invocation_id === receipt.id;
+  if (!assignedProducer && !managerCoordinator)
+    throw new Error(
+      'Task repair requires its exact current owner producer or the acknowledged workflow manager coordinator.',
+    );
 }
 
 export function createMcpServer(root: string, binding: McpBinding = {}): McpServer {
@@ -663,6 +738,7 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
               throw new Error(
                 'A bound invocation must resume its existing workflow; recursive intake is forbidden.',
               );
+            if (!readOnly) assertReviewerMutationAuthority(root, receipt, name);
             authorizeOperation(root, receipt.id, name, operationBinding(root, name, input));
             if (
               typeof input.id === 'string' &&
@@ -746,6 +822,27 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
     false,
   );
   tool(
+    'manager_acknowledge',
+    'Bind the current invocation as the acknowledged manager for its own workflow. The signed bound manager receipt supplies the identity; callers cannot nominate another invocation.',
+    { workflow_id: z.string() },
+    (i) => {
+      const receipt = bound();
+      if (
+        !receipt ||
+        receipt.execution_mode !== 'native' ||
+        receipt.state !== 'running' ||
+        receipt.role !== 'manager' ||
+        receipt.task_id !== null ||
+        receipt.workflow_id !== i.workflow_id
+      )
+        throw new Error(
+          'Manager acknowledgment requires the running signed manager coordinator invocation, with no task assignment, for the same workflow.',
+        );
+      return acknowledgeManagerInvocation(root, i.workflow_id, receipt.id);
+    },
+    false,
+  );
+  tool(
     'manager_discuss',
     'Persist an actual specialist contribution with its invocation and inspected input baselines; bounded to three rounds.',
     {
@@ -782,7 +879,13 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
   tool(
     'fast_plan_submit',
     'Freeze one scoped Fast planning artifact after its assignment report. The core then performs independent plan review, production, final review and unchanged acceptance gates.',
-    { workflow_id: z.string(), task_ids: z.array(z.string()).length(1), summary: z.string(), rationale: z.string(), no_lesson_reason: z.string() },
+    {
+      workflow_id: z.string(),
+      task_ids: z.array(z.string()).length(1),
+      summary: z.string(),
+      rationale: z.string(),
+      no_lesson_reason: z.string(),
+    },
     (i) => {
       const receipt = bound();
       if (!receipt) throw new Error('Fast plan submission requires its invocation-bound planner.');
@@ -801,6 +904,16 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
     'Find saved workflows, current gates, changed decisions, and the next executable action.',
     { workflow_id: z.string().optional() },
     (i) => workflowStatus(root, i.workflow_id),
+  );
+  tool(
+    'record_review_status',
+    'Read the current review state for an assigned engineering record. This does not create or change a review.',
+    { id: z.string() },
+    (i) => {
+      const receipt = bound();
+      scopedRecord(root, receipt, i.id);
+      return reviewStatus(root, i.id);
+    },
   );
   tool(
     'manager_finish',
@@ -916,8 +1029,13 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
       assertRecordPreview(root, i);
       return createRecord(root, {
         ...i,
-        ...(receipt ? { owner: i.type === 'task' ? i.owner : responsibility ?? receipt.role } : {}),
-        data: i.type === 'task' ? taskAuthorData(receipt, i.data) : authoredData(receipt, i.data, responsibility),
+        ...(receipt
+          ? { owner: i.type === 'task' ? i.owner : (responsibility ?? receipt.role) }
+          : {}),
+        data:
+          i.type === 'task'
+            ? taskAuthorData(receipt, i.data)
+            : authoredData(receipt, i.data, responsibility),
       });
     },
     false,
@@ -970,7 +1088,7 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
           Object.keys(i.data ?? {}).some((key) => !['open_questions', 'change_type'].includes(key))
         )
           throw new Error(
-            'Workflow updates expose clarification questions and reviewed release classification only.',
+            'Generic workflow updates support only open_questions and change_type. Use manager_acknowledge for signed invocation binding and manager_run to continue the workflow; lifecycle fields require their dedicated manager operations.',
           );
         return updateRecord(root, i.id, { data: i.data });
       }
@@ -1044,18 +1162,34 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
     'task_repair',
     'Record feedback, permit one repair, and escalate repeated failure.',
     { id: z.string(), feedback: z.string() },
-    (i) => requestRepair(root, i.id, i.feedback),
+    (i) => {
+      const receipt = bound();
+      if (!receipt) throw new Error('Task repair requires an invocation-bound native session.');
+      const task = scopedRecord(root, receipt, i.id);
+      assertTaskRepairAuthority(root, receipt, task);
+      return requestRepair(root, i.id, i.feedback);
+    },
     false,
   );
   tool(
     'task_file_write',
-    'Edit assigned UTF-8 implementation/documentation using its current SHA-256. Prefer replacement:{before,after} for exactly one literal small edit; unrelated bytes are preserved by core. Supply content OR replacement, with unused fields omitted/null. Full content supports a new file with expected_hash:null. Requires the current native Developer, reviewed scope and unchanged protected artifacts. Retains immutable history and same-operation replay.',
+    'Edit a file assigned to the current task owner using its current SHA-256. Prefer replacement:{before,after} for exactly one literal small edit; unrelated bytes are preserved by core. Supply content OR replacement, with unused fields omitted/null. Full content supports a new file with expected_hash:null. Requires the current signed native invocation for the assigned task owner, reviewed scope and unchanged protected artifacts. Retains immutable history and same-operation replay.',
     {
       task_id: z.string(),
       workflow_id: z.string().optional(),
       path: z.string().describe('Project-relative file inside the reviewed task allowed_paths.'),
-      content: z.string().nullable().optional().describe('Complete UTF-8 content, at most 128 KiB; unused when replacement is supplied.'),
-      replacement: z.object({ before: z.string().min(1), after: z.string() }).nullable().optional().describe('Replace exactly one literal occurrence while preserving every unrelated byte. Requires an existing file and non-null expected_hash.'),
+      content: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Complete UTF-8 content, at most 128 KiB; unused when replacement is supplied.'),
+      replacement: z
+        .object({ before: z.string().min(1), after: z.string() })
+        .nullable()
+        .optional()
+        .describe(
+          'Replace exactly one literal occurrence while preserving every unrelated byte. Requires an existing file and non-null expected_hash.',
+        ),
       expected_hash: z
         .string()
         .regex(/^[a-f0-9]{64}$/)
@@ -1075,7 +1209,9 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
     (i) => {
       const receipt = bound();
       if (!receipt)
-        throw new Error('Task file writes require an invocation-bound native Developer session.');
+        throw new Error(
+          'Task file writes require an invocation-bound native assigned-owner session.',
+        );
       scopedRecord(root, receipt, i.task_id);
       const common = {
         ...i,
@@ -1086,8 +1222,13 @@ export function createMcpServer(root: string, binding: McpBinding = {}): McpServ
       if ((i.content != null) === (i.replacement != null))
         throw new Error('Supply content or replacement, rather than both or neither.');
       if (i.replacement != null) {
-        if (i.expected_hash === null) throw new Error('Literal replacement requires the current hash of an existing file.');
-        return workspaceReplace(root, { ...common, expected_hash: i.expected_hash, replacement: i.replacement });
+        if (i.expected_hash === null)
+          throw new Error('Literal replacement requires the current hash of an existing file.');
+        return workspaceReplace(root, {
+          ...common,
+          expected_hash: i.expected_hash,
+          replacement: i.replacement,
+        });
       }
       return workspaceWrite(root, { ...common, content: i.content });
     },

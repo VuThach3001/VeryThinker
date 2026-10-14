@@ -258,10 +258,41 @@ export function bindManagerInvocation(
 ): ProjectRecord {
   const parent = workflow(root, id);
   assertRouting(root, 'manager', invocationId, { workflow_id: id, require_completed: false });
+  // Acknowledging the same observed invocation must not churn record revisions.
+  if (parent.meta.data.invocation_id === invocationId) return parent;
   return updateRecord(root, id, { data: { invocation_id: invocationId } }, undefined, (current) => {
     if (current.meta.revision !== parent.meta.revision)
       throw new Error('Workflow changed before manager assignment.');
   });
+}
+/** A manager acknowledges itself without granting workflow lifecycle overrides. */
+export function acknowledgeManagerInvocation(
+  root: string,
+  id: string,
+  invocationId: string,
+): ProjectRecord {
+  const parent = workflow(root, id);
+  const receipt = assertRouting(root, 'manager', invocationId, {
+    workflow_id: id,
+    require_completed: false,
+  });
+  if (
+    !receipt ||
+    receipt.execution_mode !== 'native' ||
+    receipt.state !== 'running' ||
+    receipt.task_id !== null
+  )
+    throw new Error(
+      'Manager acknowledgment requires the active signed taskless coordinator for this workflow.',
+    );
+  if (
+    ['completed', 'completed-with-blockers'].includes(String(parent.meta.data.phase)) ||
+    parent.meta.data.closed_at
+  )
+    throw new Error(
+      'A closed workflow requires manager_run continuation rather than acknowledgment rebinding.',
+    );
+  return bindManagerInvocation(root, id, invocationId);
 }
 export const discussionRoles = [
   'researcher',
@@ -446,16 +477,26 @@ function decideWorkflowClaimed(
     validateFastSelection(root, parent.meta.data.execution_policy_selection as FastSelection);
     const planner = readInvocation(root, String(parent.meta.data.invocation_id));
     const errors = fastGrantProblems(root, planner, { historical: true });
-    if (planner.fast_grant?.stage !== 'planner' || planner.state !== 'completed' || !planner.inference_completed || errors.length)
+    if (
+      planner.fast_grant?.stage !== 'planner' ||
+      planner.state !== 'completed' ||
+      !planner.inference_completed ||
+      errors.length
+    )
       throw new Error(`Fast decision needs its completed confirmed planner: ${errors.join(' ')}`);
     const submitted = parent.meta.data.fast_plan as { task_ids?: string[] } | undefined;
-    if (!submitted || JSON.stringify(submitted.task_ids) !== JSON.stringify(input.task_ids) || input.task_ids.length !== 1)
+    if (
+      !submitted ||
+      JSON.stringify(submitted.task_ids) !== JSON.stringify(input.task_ids) ||
+      input.task_ids.length !== 1
+    )
       throw new Error('Fast decision must use its frozen single-task planning submission.');
   }
-  if (!fast && (
-    new Set(participants.map((r) => r.meta.owner)).size < 2 ||
-    new Set(participants.map((r) => r.meta.data.invocation_id)).size < 2
-  ))
+  if (
+    !fast &&
+    (new Set(participants.map((r) => r.meta.owner)).size < 2 ||
+      new Set(participants.map((r) => r.meta.data.invocation_id)).size < 2)
+  )
     throw new Error(
       'Execution needs current contributions from two specialist roles in separate invocations.',
     );
@@ -815,7 +856,7 @@ function workflowStatusSnapshot(root: string, id?: string): unknown {
         ? 'native-blocked'
         : decisionFindings.length
           ? 'reassessment-required'
-        : savedLocalDelivery && deliveryFindings.length
+          : savedLocalDelivery && deliveryFindings.length
             ? 'reassessment-required'
             : parent.meta.data.decision_id &&
                 taskStates.some((t) => t.status !== 'accepted' || !t.accepted.ok)

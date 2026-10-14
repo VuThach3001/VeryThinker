@@ -39,6 +39,20 @@ async function clientFor(t, root, invocationId) {
   });
   return client;
 }
+test('intake can read review diagnostics before native execution without mutating the record', async t => {
+  const root = await project(t);
+  ensureRoutingPolicy(root);
+  const target = createRecord(root, {type:'design',owner:'architect',title:'Review diagnostic intake'});
+  const before = getRecord(root,target.meta.id);
+  const client = await clientFor(t,root);
+  const result = await client.callTool({name:'record_review_status',arguments:{id:target.meta.id}});
+  assert.equal(result.isError,undefined);
+  const status = JSON.parse(result.content.find(block=>block.type==='text').text);
+  assert.equal(status.target_id,target.meta.id);
+  assert.equal(status.disposition,'missing');
+  assert.equal(status.current,false);
+  assert.equal(getRecord(root,target.meta.id).meta.revision,before.meta.revision);
+});
 const result = (response) => JSON.parse(response.content[0].text);
 function input(checkId, taskId) {
   return {

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { createHash } from 'node:crypto';
 import { readRoutingPolicy, strongRoles } from './routing.js';
-import { roleCapabilities } from './tools.js';
+import { readToolPolicy, roleCapabilities } from './tools.js';
 
 export type Platform = 'codex' | 'claude' | 'copilot';
 export type ModelTier = 'economy' | 'balanced' | 'strong';
@@ -236,9 +236,16 @@ Read .verythinker/guides/workflow.md and your role contract for worker submissio
 Hooks provide advisory context. Completion must pass core validation even when hooks fail. Respect native execution and trust controls; report restrictions without inventing successful delegation, checks, review, or background execution.
 Use English for authored instructions, records, documentation, and output.
 `;
-function capabilityInstructions(role: string): string {
-  const contract = roleCapabilities(role);
-  return `## Role capabilities\nRole: ${role}. Required capabilities: ${contract.required.join(', ')}. Optional equivalents: ${contract.optional.join(', ') || 'none'}. Approved providers: ${contract.providers.join(', ') || 'none'}. Use capability_describe/capability_resolve and the invocation-bound capability_invoke gateway. Required missing tools block dispatch; optional substitutions are recorded. Allowed core operations: ${contract.operations.join(', ')}. Native tool scope: ${contract.native_tools.join(', ')}. Generated native restrictions require client conformance; the bound gateway is authoritative for its operations.\n`;
+function capabilityInstructions(
+  role: string,
+  providers?: import('./tools.js').ProviderId[],
+): string {
+  const contract = roleCapabilities(role, providers);
+  const reviewRule =
+    role === 'reviewer'
+      ? ' Review invocations and unbound reviewer sessions stay read-only. A reviewer may edit only its own separately assigned producer task; never edit source, requirements, expectations, evidence, or review targets while reviewing them.'
+      : '';
+  return `## Role capabilities\nRole: ${role}. Required capabilities: ${contract.required.join(', ')}. Optional equivalents: ${contract.optional.join(', ') || 'none'}. Approved providers: ${contract.providers.join(', ') || 'none'}. Use capability_describe/capability_resolve and the invocation-bound capability_invoke gateway. Required missing tools block dispatch; optional substitutions are recorded. Allowed core operations: ${contract.operations.join(', ')}. Native tool scope: ${contract.native_tools.join(', ')}. task_file_write is restricted by the core to the current assigned task owner, approved paths, and invocation lineage.${reviewRule} Generated native restrictions require client conformance; the bound gateway is authoritative for its operations.\n`;
 }
 function claudeTools(role: string): string[] {
   const contract = roleCapabilities(role);
@@ -303,11 +310,12 @@ export function adapterOutputs(root: string, config: AdapterConfig): ManagedOutp
           }
         : null;
       const model = policy?.models[0] ?? modelFor(config, role.tier, 'codex');
-      const contract = roleCapabilities(role.id);
+      const contract = roleCapabilities(role.id, readToolPolicy(root)?.approved_providers);
+      const sandboxMode = role.id === 'reviewer' ? 'read-only' : 'workspace-write';
       outputs.push({
         path: `.codex/agents/verythinker-${role.id}.toml`,
         kind: 'file',
-        content: `name = ${JSON.stringify(`verythinker-${role.id}`)}\ndescription = ${JSON.stringify(role.description)}\n${model ? `model = ${JSON.stringify(model)}\n` : ''}${policy ? `model_reasoning_effort = ${JSON.stringify(policy.reasoning_effort)}\n` : ''}${policy?.strong ? 'sandbox_mode = "read-only"\n' : ''}developer_instructions = ${JSON.stringify(`${workflow}\n${capabilityInstructions(role.id)}\n${role.body}`)}\n\n[mcp_servers.verythinker]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify(server.args)}\nenabled_tools = ${JSON.stringify([...contract.operations, ...(role.id === 'manager' ? ['manager_run'] : [])])}\n`,
+        content: `name = ${JSON.stringify(`verythinker-${role.id}`)}\ndescription = ${JSON.stringify(role.description)}\n${model ? `model = ${JSON.stringify(model)}\n` : ''}${policy ? `model_reasoning_effort = ${JSON.stringify(policy.reasoning_effort)}\n` : ''}sandbox_mode = ${JSON.stringify(sandboxMode)}\ndeveloper_instructions = ${JSON.stringify(`${workflow}\n${capabilityInstructions(role.id)}\n${role.body}`)}\n\n[mcp_servers.verythinker]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify(server.args)}\nenabled_tools = ${JSON.stringify([...contract.operations, ...(role.id === 'manager' ? ['manager_run'] : [])])}\n`,
       });
     }
     for (const [event, internal] of [
@@ -351,7 +359,7 @@ export function adapterOutputs(root: string, config: AdapterConfig): ManagedOutp
       outputs.push({
         path: `.claude/agents/verythinker-${role.id}.md`,
         kind: 'file',
-        content: `---\nname: verythinker-${role.id}\ndescription: ${JSON.stringify(role.description)}\nmodel: ${JSON.stringify(model ?? 'inherit')}\ntools: ${claudeTools(role.id).join(', ')}\n---\n\n${workflow}\n${capabilityInstructions(role.id)}\n${role.body}`,
+        content: `---\nname: verythinker-${role.id}\ndescription: ${JSON.stringify(role.description)}\nmodel: ${JSON.stringify(model ?? 'inherit')}\ntools: ${claudeTools(role.id).join(', ')}\n---\n\n${workflow}\n${capabilityInstructions(role.id, readToolPolicy(root)?.approved_providers)}\n${role.body}`,
       });
     }
     for (const [event, internal] of [
@@ -400,7 +408,7 @@ export function adapterOutputs(root: string, config: AdapterConfig): ManagedOutp
       outputs.push({
         path: `.github/agents/verythinker-${role.id}.agent.md`,
         kind: 'file',
-        content: `---\nname: verythinker-${role.id}\ndescription: ${JSON.stringify(role.description)}\n${model ? `model: ${JSON.stringify(model)}\n` : ''}tools: ${JSON.stringify(copilotTools(role.id))}\n---\n\n${workflow}\n${capabilityInstructions(role.id)}\n${role.body}`,
+        content: `---\nname: verythinker-${role.id}\ndescription: ${JSON.stringify(role.description)}\n${model ? `model: ${JSON.stringify(model)}\n` : ''}tools: ${JSON.stringify(copilotTools(role.id))}\n---\n\n${workflow}\n${capabilityInstructions(role.id, readToolPolicy(root)?.approved_providers)}\n${role.body}`,
       });
     }
     outputs.push({

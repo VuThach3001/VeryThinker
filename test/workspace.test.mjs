@@ -54,7 +54,7 @@ function updateReceipt(work, id, patch) {
   writeFileSync(path, JSON.stringify({ ...unsigned,
     signature: sign(null, Buffer.from(canonicalJson(unsigned)), work.key.privateKey).toString('base64') }));
 }
-function fixture(t) {
+function fixture(t, ownerRole = 'developer') {
   const root = mkdtempSync(join(tmpdir(), 'verythinker-workspace-'));
   t.after(() => { assert.equal(dirname(resolve(root)), resolve(tmpdir())); rmSync(root, { recursive: true, force: true }); });
   initialize(root, { project_id: 'WORKSPACE', profile: 'software' });
@@ -69,7 +69,7 @@ function fixture(t) {
   const architect = receipt(work, 'architect');
   const design = createRecord(root, { type: 'design', title: 'Integer interface', owner: 'architect',
     links: [{ type: 'satisfies', target: requirement.meta.id }], data: { workflow_id: workflow.meta.id, invocation_id: architect.id, interfaces: ['value: integer'] } });
-  const task = createRecord(root, { type: 'task', title: 'Implement and document integer interface', owner: 'developer',
+  const task = createRecord(root, { type: 'task', title: 'Implement and document integer interface', owner: ownerRole,
     links: [{ type: 'satisfies', target: requirement.meta.id }, { type: 'implements', target: design.meta.id }],
     data: { routing_required: true, workflow_id: workflow.meta.id, acceptance_criteria: ['Export one.'], allowed_paths: ['src', 'README.md', 'docs'], outputs: ['src/value.mjs', 'README.md'] } });
   updateRecord(root, workflow.meta.id, { data: { task_ids: [task.meta.id] } });
@@ -80,7 +80,7 @@ function fixture(t) {
   const reviewer = receipt(work, 'reviewer');
   reviewRecord(root, check.meta.id, 'reviewer', 'pass', [], reviewer.id);
   reviewRecord(root, design.meta.id, 'reviewer', 'pass', [], reviewer.id);
-  const worker = receipt(work, 'developer', { state: 'running', task_id: task.meta.id });
+  const worker = receipt(work, ownerRole, { state: 'running', task_id: task.meta.id });
   startTask(root, task.meta.id, undefined, undefined, worker.id);
   Object.assign(work, { requirement, task, design, check, worker });
   work.write = (patch = {}) => workspaceWrite(root, { task_id: task.meta.id, workflow_id: workflow.meta.id,
@@ -115,6 +115,19 @@ test('scoped write preserves exact prior bytes, producer identity, completion an
   assert.equal(created.history_paths.some((path) => path.endsWith('/previous.utf8')), false);
 });
 
+test('assigned reviewer can write its own approved documentation with ordinary scoped history', (t) => {
+  const work = fixture(t, 'reviewer');
+  const result = work.write({
+    path: 'docs/review.md',
+    content: '# Independent review notes\n\nObserved assigned documentation.\n',
+    expected_hash: null,
+  });
+  assert.equal(result.replayed, false);
+  assert.equal(readFileSync(join(work.root, 'docs/review.md'), 'utf8'),
+    '# Independent review notes\n\nObserved assigned documentation.\n');
+  assert.deepEqual(workspaceHistoryProblems(work.root, getRecord(work.root, work.task.meta.id)), []);
+});
+
 test('expected hashes and same-operation recovery preserve user edits and do not duplicate history', (t) => {
   const work = fixture(t);
   const originalHash = hash(readFileSync(join(work.root, 'README.md'))), operation_id = randomUUID();
@@ -139,17 +152,21 @@ test('role, producer, workflow, observed capability, lifecycle and current desig
   const before = readFileSync(join(work.root, 'README.md'));
   for (const role of ['manager', 'reviewer', 'check-executor']) {
     const other = receipt(work, role, { state: 'running', task_id: work.task.meta.id });
-    assert.throws(() => work.write({ invocation_id: other.id }), /current Developer producer/);
+    assert.throws(() => work.write({ invocation_id: other.id }), /current assigned producer/);
   }
+  const reviewer = receipt(work, 'reviewer', { state: 'running', task_id: work.task.meta.id });
+  updateRecord(work.root, work.task.meta.id, { data: { invocation_id: reviewer.id } });
+  assert.throws(() => work.write({ invocation_id: reviewer.id }), /role|invocation/);
+  updateRecord(work.root, work.task.meta.id, { data: { invocation_id: work.worker.id } });
   const mismatch = receipt(work, 'developer', { state: 'running', task_id: work.task.meta.id });
-  assert.throws(() => work.write({ invocation_id: mismatch.id }), /current Developer producer/);
-  assert.throws(() => work.write({ workflow_id: 'WORKSPACE-KNW-9999' }), /current Developer producer/);
+  assert.throws(() => work.write({ invocation_id: mismatch.id }), /current assigned producer/);
+  assert.throws(() => work.write({ workflow_id: 'WORKSPACE-KNW-9999' }), /current assigned producer/);
   const noScope = receipt(work, 'developer', { state: 'running', task_id: work.task.meta.id, scope: [] });
   updateRecord(work.root, work.task.meta.id, { data: { invocation_id: noScope.id } });
   assert.throws(() => work.write({ invocation_id: noScope.id }), /did not confirm.*task_file_write/);
   const completed = receipt(work, 'developer', { task_id: work.task.meta.id });
   updateRecord(work.root, work.task.meta.id, { data: { invocation_id: completed.id } });
-  assert.throws(() => work.write({ invocation_id: completed.id }), /currently running/);
+  assert.throws(() => work.write({ invocation_id: completed.id }), /current running/);
   updateRecord(work.root, work.task.meta.id, { data: { invocation_id: work.worker.id } });
   updateRecord(work.root, work.requirement.meta.id, { data: { acceptance_criteria: ['Export two.'] } });
   assert.throws(() => work.write(), /current reviewed design and verification plans/);
@@ -262,8 +279,8 @@ test('an edit arriving after intent linkage is preserved at the last hash check'
   assert.equal(readFileSync(join(work.root, 'README.md'), 'utf8'), 'A concurrent user edit must survive.\n');
 });
 
-test('an interrupted write resumes only through signed same-assignment lineage and preserves original authorship', (t) => {
-  const work = fixture(t), operation_id = randomUUID();
+test('reviewer write recovery requires signed same-role assignment lineage and preserves original authorship', (t) => {
+  const work = fixture(t, 'reviewer'), operation_id = randomUUID();
   const expected_hash = hash(readFileSync(join(work.root, 'README.md')));
   const originalRename = fs.renameSync;
   fs.renameSync = (source, target) => {
@@ -274,12 +291,14 @@ test('an interrupted write resumes only through signed same-assignment lineage a
   try { assert.throws(() => work.write({ operation_id, expected_hash }), /interrupted write/); }
   finally { fs.renameSync = originalRename; syncBuiltinESMExports(); }
   updateReceipt(work, work.worker.id, { state: 'interrupted', inference_completed: false });
-  const foreign = receipt(work, 'developer', { state: 'running', task_id: work.task.meta.id });
+  const foreign = receipt(work, 'reviewer', { state: 'running', task_id: work.task.meta.id });
   assert.throws(() => resumeTask(work.root, work.task.meta.id, undefined, undefined, foreign.id), /original author|resume lineage/);
   assert.equal(getRecord(work.root, work.task.meta.id).meta.data.invocation_id, work.worker.id);
-  const wrongTask = receipt(work, 'developer', { state: 'running', task_id: 'WORKSPACE-TASK-9999', prior_invocation_id: work.worker.id });
+  const wrongTask = receipt(work, 'reviewer', { state: 'running', task_id: 'WORKSPACE-TASK-9999', prior_invocation_id: work.worker.id });
   assert.throws(() => resumeTask(work.root, work.task.meta.id, undefined, undefined, wrongTask.id), /different task/);
-  const resumed = receipt(work, 'developer', { state: 'running', task_id: work.task.meta.id, prior_invocation_id: work.worker.id });
+  const wrongRole = receipt(work, 'developer', { state: 'running', task_id: work.task.meta.id, prior_invocation_id: work.worker.id });
+  assert.throws(() => resumeTask(work.root, work.task.meta.id, undefined, undefined, wrongRole.id), /does not match|routing/);
+  const resumed = receipt(work, 'reviewer', { state: 'running', task_id: work.task.meta.id, prior_invocation_id: work.worker.id });
   updateRecord(work.root, work.task.meta.id, { status: 'blocked' });
   assert.deepEqual(workspaceResumeOperations(work.root, getRecord(work.root, work.task.meta.id), resumed.id), [operation_id]);
   resumeTask(work.root, work.task.meta.id, undefined, undefined, resumed.id);

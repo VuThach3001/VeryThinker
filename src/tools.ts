@@ -13,12 +13,13 @@ import {
   withLock,
   withOperationLock,
 } from './storage.js';
-import { readInvocation, assertRouting, roleModelPolicy } from './routing.js';
 import {
-  authorizeFastOperation,
-  fastCapabilities,
-  type FastGrantTarget,
-} from './fast-grants.js';
+  readInvocation,
+  assertRouting,
+  roleModelPolicy,
+  expectedNativeSandbox,
+} from './routing.js';
+import { authorizeFastOperation, fastCapabilities, type FastGrantTarget } from './fast-grants.js';
 
 export const toolCatalog = [
   {
@@ -74,6 +75,8 @@ export interface RoleCapabilities {
   native_tools: string[];
 }
 const common = [
+  'record_create',
+  'record_update',
   'project_status',
   'project_read',
   'assignment_report',
@@ -93,7 +96,16 @@ const common = [
   'note_validate',
   'pack_list',
   'pack_suggest',
+  'note_create',
+  'task_file_write',
+  'capability_resolve',
+  'capability_invoke',
+  'record_review_status',
+  'task_start',
+  'task_resume',
+  'task_submit',
 ];
+const sharedProviders = toolCatalog.map((tool) => tool.id) as ProviderId[];
 const writeRecords = [
   'record_create',
   'record_update',
@@ -125,64 +137,40 @@ const roles: Record<string, Omit<RoleCapabilities, 'role'>> = {
       'capability_invoke',
       'contribution_prepare',
       'contribution_submit',
+      'manager_acknowledge',
     ],
-    providers: ['codegraph', 'context7'],
+    providers: sharedProviders,
     required: ['engineering-core', 'native-coordination'],
     optional: ['code-analysis', 'library-documentation'],
-    native_tools: ['read', 'search', 'web', 'coordination'],
+    native_tools: ['read', 'search', 'web', 'edit', 'execute-prescribed', 'coordination'],
   },
   requirements: {
-    operations: [
-      ...common,
-      ...writeRecords,
-      'manager_discuss',
-      'capability_resolve',
-      'capability_invoke',
-    ],
-    providers: ['codegraph', 'context7'],
+    operations: [...common, ...writeRecords, 'manager_discuss'],
+    providers: sharedProviders,
     required: ['engineering-core', 'source-retrieval'],
     optional: ['code-analysis', 'library-documentation'],
-    native_tools: ['read', 'search', 'web'],
+    native_tools: ['read', 'search', 'web', 'edit', 'execute-prescribed'],
   },
   architect: {
-    operations: [
-      ...common,
-      ...writeRecords,
-      'manager_discuss',
-      'capability_resolve',
-      'capability_invoke',
-    ],
-    providers: ['codegraph', 'context7'],
+    operations: [...common, ...writeRecords, 'manager_discuss'],
+    providers: sharedProviders,
     required: ['engineering-core', 'source-retrieval'],
     optional: ['code-analysis', 'library-documentation'],
-    native_tools: ['read', 'search', 'web'],
+    native_tools: ['read', 'search', 'web', 'edit', 'execute-prescribed'],
   },
   'component-owner': {
-    operations: [
-      ...common,
-      ...writeRecords,
-      'manager_discuss',
-      'capability_resolve',
-      'capability_invoke',
-    ],
-    providers: ['codegraph', 'context7'],
+    operations: [...common, ...writeRecords, 'manager_discuss'],
+    providers: sharedProviders,
     required: ['engineering-core'],
     optional: ['code-analysis', 'library-documentation'],
-    native_tools: ['read', 'search', 'web'],
+    native_tools: ['read', 'search', 'web', 'edit', 'execute-prescribed'],
   },
   verifier: {
-    operations: [
-      ...common,
-      ...writeRecords,
-      'manager_discuss',
-      'capability_resolve',
-      'capability_invoke',
-      'recipe_revise',
-    ],
-    providers: ['codegraph', 'context7', 'playwright'],
+    operations: [...common, ...writeRecords, 'manager_discuss', 'recipe_revise'],
+    providers: sharedProviders,
     required: ['engineering-core'],
     optional: ['code-analysis', 'library-documentation', 'browser-exploration'],
-    native_tools: ['read', 'search', 'web'],
+    native_tools: ['read', 'search', 'web', 'edit', 'execute-prescribed'],
   },
   reviewer: {
     operations: [
@@ -192,70 +180,36 @@ const roles: Record<string, Omit<RoleCapabilities, 'role'>> = {
       'note_validate',
       'recipe_list',
       'manager_discuss',
-      'capability_resolve',
-      'capability_invoke',
     ],
-    providers: ['codegraph', 'context7'],
+    providers: sharedProviders,
     required: ['engineering-core'],
     optional: ['code-analysis', 'library-documentation'],
     native_tools: ['read', 'search', 'web'],
   },
   researcher: {
-    operations: [
-      ...common,
-      ...writeRecords,
-      ...submit,
-      'manager_discuss',
-      'capability_resolve',
-      'capability_invoke',
-    ],
-    providers: ['codegraph', 'context7'],
+    operations: [...common, ...writeRecords, ...submit, 'manager_discuss'],
+    providers: sharedProviders,
     required: ['source-retrieval'],
     optional: ['code-analysis', 'library-documentation'],
-    native_tools: ['read', 'search', 'web', 'edit-assigned-documents'],
+    native_tools: ['read', 'search', 'web', 'edit', 'execute-prescribed'],
   },
   'codebase-analyst': {
-    operations: [
-      ...common,
-      ...writeRecords,
-      ...submit,
-      'manager_discuss',
-      'capability_resolve',
-      'capability_invoke',
-    ],
-    providers: ['codegraph', 'context7'],
+    operations: [...common, ...writeRecords, ...submit, 'manager_discuss'],
+    providers: sharedProviders,
     required: ['source-retrieval'],
     optional: ['code-analysis', 'library-documentation'],
-    native_tools: ['read', 'search', 'web', 'edit-assigned-documents'],
+    native_tools: ['read', 'search', 'web', 'edit', 'execute-prescribed'],
   },
   curator: {
-    operations: [
-      ...common,
-      ...writeRecords,
-      ...submit,
-      'contribution_prepare',
-      'manager_discuss',
-      'capability_resolve',
-      'capability_invoke',
-    ],
-    providers: ['context7'],
+    operations: [...common, ...writeRecords, ...submit, 'contribution_prepare', 'manager_discuss'],
+    providers: sharedProviders,
     required: ['engineering-core'],
     optional: ['library-documentation'],
-    native_tools: ['read', 'search', 'web', 'edit-assigned-documents'],
+    native_tools: ['read', 'search', 'web', 'edit', 'execute-prescribed'],
   },
   developer: {
-    operations: [
-      ...common,
-      ...submit,
-      'note_create',
-      'note_validate',
-      'recipe_list',
-      'recipe_run',
-      'task_file_write',
-      'capability_resolve',
-      'capability_invoke',
-    ],
-    providers: ['codegraph', 'context7', 'playwright'],
+    operations: [...common, ...submit, 'note_create', 'note_validate', 'recipe_list', 'recipe_run'],
+    providers: sharedProviders,
     required: ['engineering-core', 'assigned-editing'],
     optional: ['code-analysis', 'library-documentation', 'browser-exploration'],
     native_tools: ['read', 'search', 'edit', 'execute-prescribed'],
@@ -269,13 +223,11 @@ const roles: Record<string, Omit<RoleCapabilities, 'role'>> = {
       'recipe_run',
       'note_create',
       'note_validate',
-      'capability_resolve',
-      'capability_invoke',
     ],
-    providers: ['playwright'],
+    providers: sharedProviders,
     required: ['engineering-core', 'prescribed-execution'],
     optional: ['browser-exploration'],
-    native_tools: ['read', 'search', 'execute-prescribed'],
+    native_tools: ['read', 'search', 'edit', 'execute-prescribed'],
   },
   release: {
     operations: [
@@ -288,18 +240,22 @@ const roles: Record<string, Omit<RoleCapabilities, 'role'>> = {
       'contribution_submit',
       'recipe_run',
     ],
-    providers: [],
+    providers: sharedProviders,
     required: ['engineering-core', 'git-publication'],
     optional: [],
-    native_tools: ['read', 'search', 'execute-prescribed'],
+    native_tools: ['read', 'search', 'edit', 'execute-prescribed'],
   },
 };
-export function roleCapabilities(role: string): RoleCapabilities {
+export function roleCapabilities(
+  role: string,
+  providers: ProviderId[] = sharedProviders,
+): RoleCapabilities {
   const contract = roles[role];
   if (!contract) throw new Error(`Unknown engineering role: ${role}`);
   return {
     role,
     ...contract,
+    providers,
     operations: [
       ...new Set([
         ...contract.operations,
@@ -349,7 +305,7 @@ export function authorizeOperation(
   });
   const contract = receipt.fast_grant
     ? authorizeFastOperation(root, receipt, operation, input)
-    : roleCapabilities(receipt.role);
+    : roleCapabilities(receipt.role, readToolPolicy(root)?.approved_providers ?? sharedProviders);
   if (!contract.operations.includes(operation))
     throw new Error(`Role ${receipt.role} cannot use ${operation}.`);
   if (receipt.task_id && input.task_id && receipt.task_id !== input.task_id)
@@ -358,8 +314,24 @@ export function authorizeOperation(
     throw new Error('Operation escapes the assigned workflow.');
   return contract;
 }
-export function roleCapabilitiesForReceipt(root: string, receipt: import('./routing.js').NativeReceipt): RoleCapabilities {
-  return receipt.fast_grant ? fastCapabilities(root, receipt) : roleCapabilities(receipt.role);
+export function roleCapabilitiesForReceipt(
+  root: string,
+  receipt: import('./routing.js').NativeReceipt,
+): RoleCapabilities {
+  if (receipt.fast_grant) return fastCapabilities(root, receipt);
+  const contract = roleCapabilities(
+    receipt.role,
+    readToolPolicy(root)?.approved_providers ?? sharedProviders,
+  );
+  if (receipt.role === 'reviewer')
+    return {
+      ...contract,
+      native_tools:
+        expectedNativeSandbox(root, receipt) === 'workspaceWrite'
+          ? ['read', 'search', 'edit', 'execute-prescribed']
+          : ['read', 'search', 'web'],
+    };
+  return contract;
 }
 function npmScript(): string {
   const options = [
@@ -556,7 +528,10 @@ async function connectProvider(
   }
 }
 export function describeCapabilities(root: string, role: string): unknown {
-  const contract = roleCapabilities(role);
+  const contract = roleCapabilities(
+    role,
+    readToolPolicy(root)?.approved_providers ?? sharedProviders,
+  );
   return {
     ...contract,
     model_policy: roleModelPolicy(root, role),
@@ -573,7 +548,10 @@ export async function resolveCapabilities(
   root: string,
   input: { role: string; providers?: ProviderId[]; required?: ProviderId[] },
 ): Promise<unknown> {
-  const contract = roleCapabilities(input.role);
+  const contract = roleCapabilities(
+    input.role,
+    readToolPolicy(root)?.approved_providers ?? sharedProviders,
+  );
   const requested = [...new Set([...(input.providers ?? []), ...(input.required ?? [])])];
   if (requested.some((id) => !contract.providers.includes(id)))
     throw new Error('Provider is outside the role capability contract.');

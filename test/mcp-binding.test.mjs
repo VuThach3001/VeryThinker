@@ -9,6 +9,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import {
   createMcpServer,
   assertGenericRecordMutation,
+  assertTaskRepairAuthority,
   canAuthor,
   projectRead,
   assertTaskOutputPaths,
@@ -74,9 +75,17 @@ test('strict unbound MCP rejects arbitrary mutations and exposes natural require
   });
   assert.equal(created.isError, true);
   assert.match(result(created).error, /invocation-bound/);
+  const unboundAcknowledgement = await client.callTool({
+    name: 'manager_acknowledge',
+    arguments: { workflow_id: 'MCP-BOUND-KNW-0001' },
+  });
+  assert.equal(unboundAcknowledgement.isError, true);
+  assert.match(result(unboundAcknowledgement).error, /invocation-bound/);
   const tools = (await client.listTools()).tools.map((tool) => tool.name);
   for (const name of [
     'manager_run',
+    'manager_acknowledge',
+    'record_review_status',
     'native_dispatch',
     'native_wait',
     'capability_invoke',
@@ -87,6 +96,13 @@ test('strict unbound MCP rejects arbitrary mutations and exposes natural require
     'recipe_resolve',
   ])
     assert.ok(tools.includes(name));
+  const toolInfo = (await client.listTools()).tools;
+  const acknowledge = toolInfo.find((tool) => tool.name === 'manager_acknowledge');
+  assert.deepEqual(acknowledge.inputSchema.required, ['workflow_id']);
+  assert.equal(acknowledge.inputSchema.properties.invocation_id, undefined);
+  const reviewStatus = toolInfo.find((tool) => tool.name === 'record_review_status');
+  assert.deepEqual(reviewStatus.inputSchema.required, ['id']);
+  assert.equal(reviewStatus.annotations.readOnlyHint, true);
   const updateSchema = (await client.listTools()).tools.find(
     (tool) => tool.name === 'record_update',
   ).inputSchema;
@@ -348,6 +364,58 @@ test('planning author metadata preserves execution identity and cannot forge rep
   assert.equal(canAuthor('manager', 'requirement'), false);
   assert.equal(canAuthor('manager', 'design'), false);
   assert.equal(canAuthor('manager', 'check'), false);
+});
+test('reviewer may author knowledge/problem/change documentation only within its assigned task', (t) => {
+  const root = project(t);
+  const task = createRecord(root, {
+    type: 'task', title: 'Independent review documentation', owner: 'reviewer',
+    data: { workflow_id: 'MCP-BOUND-KNW-9999' },
+  });
+  const own = createRecord(root, {
+    type: 'knowledge', title: 'Review rationale', owner: 'reviewer',
+    data: { task_id: task.meta.id },
+  });
+  const other = createRecord(root, {
+    type: 'problem', title: 'Developer-owned finding', owner: 'developer',
+    data: { task_id: 'MCP-BOUND-TASK-OTHER' },
+  });
+  const receipt = { id: 'reviewer-invocation', role: 'reviewer', task_id: task.meta.id };
+  assert.equal(canAuthor('reviewer', 'knowledge'), true);
+  assert.equal(canAuthor('reviewer', 'problem'), true);
+  assert.equal(canAuthor('reviewer', 'change'), true);
+  assert.equal(canAuthor('reviewer', 'requirement'), false);
+  assert.equal(canAuthor('reviewer', 'design'), false);
+  assert.equal(canAuthor('reviewer', 'check'), false);
+  assert.doesNotThrow(() => assertGenericRecordMutation(own, receipt));
+  assert.throws(() => assertGenericRecordMutation(other, receipt), /assigned project documentation records/);
+});
+test('task repair authority is limited to its exact current owner or acknowledged workflow coordinator', (t) => {
+  const root = project(t);
+  const workflow = beginWorkflow(root, { requirement: 'Repair one assigned task without crossing ownership.' });
+  const task = createRecord(root, {
+    type: 'task', title: 'Current producer task', owner: 'developer',
+    data: { workflow_id: workflow.meta.id, invocation_id: 'producer-current' },
+  });
+  const sibling = createRecord(root, {
+    type: 'task', title: 'Sibling producer task', owner: 'developer',
+    data: { workflow_id: workflow.meta.id, invocation_id: 'sibling-current' },
+  });
+  assert.doesNotThrow(() => assertTaskRepairAuthority(root,
+    { id: 'producer-current', role: 'developer', task_id: task.meta.id, workflow_id: workflow.meta.id }, task));
+  assert.throws(() => assertTaskRepairAuthority(root,
+    { id: 'reviewer-current', role: 'reviewer', task_id: task.meta.id, workflow_id: workflow.meta.id }, task), /exact current owner producer/);
+  assert.throws(() => assertTaskRepairAuthority(root,
+    { id: 'sibling-current', role: 'developer', task_id: sibling.meta.id, workflow_id: workflow.meta.id }, task), /exact current owner producer/);
+  assert.throws(() => assertTaskRepairAuthority(root,
+    { id: 'producer-old', role: 'developer', task_id: task.meta.id, workflow_id: workflow.meta.id }, task), /exact current owner producer/);
+
+  const manager = { id: 'manager-current', role: 'manager', task_id: null, workflow_id: workflow.meta.id };
+  updateRecord(root, workflow.meta.id, { data: { invocation_id: manager.id } });
+  assert.doesNotThrow(() => assertTaskRepairAuthority(root, manager, task));
+  assert.throws(() => assertTaskRepairAuthority(root,
+    { ...manager, task_id: sibling.meta.id }, task), /exact current owner producer/);
+  updateRecord(root, workflow.meta.id, { data: { invocation_id: 'manager-other' } });
+  assert.throws(() => assertTaskRepairAuthority(root, manager, task), /exact current owner producer/);
 });
 test('removed strict routing policy blocks native start, resume, reporting, and bound gateway mutation', async (t) => {
   const root = project(t),

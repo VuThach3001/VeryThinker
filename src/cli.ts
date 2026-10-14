@@ -18,6 +18,7 @@ import {
   contextPacket,
   reviewTask,
   reviewRecord,
+  reviewStatus,
   runCheck,
   inspectCheck,
   type InspectionInput,
@@ -75,6 +76,7 @@ Usage: verythinker <command> [action] [id] [options]
   task submit ID --summary TEXT [--work-record FILE] | task accept ID | task block ID --summary TEXT
   task resume ID [--model MODEL] | task repair ID --summary FEEDBACK
   review ID --owner reviewer --decision pass|fail [--findings JSON] [--invocation ID]
+  review status ID (inspect current applicability and rejection reasons)
   check run ID --task TASK_ID
   check inspect ID --task TASK_ID --invocation ID --data JSON
   check archive EVIDENCE_ID (preserve verification logs for review and sharing)
@@ -231,7 +233,11 @@ async function main(): Promise<void> {
                 }),
           ...(o.title ? { title: String(o.title) } : {}),
           ...(o['request-id'] ? { request_id: String(o['request-id']) } : {}),
-          ...(o['execution-policy'] ? { execution_policy: String(o['execution-policy']) as never } : typeof input.execution_policy === 'string' ? { execution_policy: input.execution_policy as never } : {}),
+          ...(o['execution-policy']
+            ? { execution_policy: String(o['execution-policy']) as never }
+            : typeof input.execution_policy === 'string'
+              ? { execution_policy: input.execution_policy as never }
+              : {}),
           ...(typeof input.change_type === 'string'
             ? { change_type: input.change_type as never }
             : {}),
@@ -245,15 +251,25 @@ async function main(): Promise<void> {
           const workflowId = (managed.workflow as { workflow_id?: string })?.workflow_id;
           if (workflowId && getRecord(root, workflowId).meta.data.execution_policy === 'fast') {
             let progress;
-            do { progress = await waitFastWorkflow(root, workflowId, 10000); }
-            while (fastControllerActive(root, workflowId) || !['completed', 'reassessment-required'].includes(String(getRecord(root, workflowId).meta.data.fast_stage)));
+            do {
+              progress = await waitFastWorkflow(root, workflowId, 10000);
+            } while (
+              fastControllerActive(root, workflowId) ||
+              !['completed', 'reassessment-required'].includes(
+                String(getRecord(root, workflowId).meta.data.fast_stage),
+              )
+            );
             const saved = getRecord(root, workflowId);
-            if (saved.meta.data.execution_policy === 'fast' || saved.meta.data.fast_stage === 'completed') {
+            if (
+              saved.meta.data.execution_policy === 'fast' ||
+              saved.meta.data.fast_stage === 'completed'
+            ) {
               result = { ...managed, workflow: progress, status: workflowStatus(root, workflowId) };
               break;
             }
             const latest = saved.meta.data.native_manager_attempt_id;
-            if (typeof latest === 'string') managed.invocation = nativeStatus(root, latest) as typeof managed.invocation;
+            if (typeof latest === 'string')
+              managed.invocation = nativeStatus(root, latest) as typeof managed.invocation;
           }
           let invocation = managed.invocation;
           while (invocation && ['starting', 'running'].includes(invocation.state))
@@ -392,6 +408,10 @@ async function main(): Promise<void> {
       break;
     }
     case 'review': {
+      if (action === 'status') {
+        result = reviewStatus(root, needed(id, 'Target ID'));
+        break;
+      }
       const target = needed(action, 'Target ID');
       const owner = needed(o.owner, '--owner');
       const decision = needed(o.decision, '--decision');
@@ -566,8 +586,13 @@ async function main(): Promise<void> {
           : {}),
       };
       if (input.replacement != null) {
-        if (typeof input.expected_hash !== 'string') throw new Error('Literal replacement requires an existing file hash.');
-        result = workspaceReplace(root, { ...writeInput, expected_hash: input.expected_hash, replacement: input.replacement } as never);
+        if (typeof input.expected_hash !== 'string')
+          throw new Error('Literal replacement requires an existing file hash.');
+        result = workspaceReplace(root, {
+          ...writeInput,
+          expected_hash: input.expected_hash,
+          replacement: input.replacement,
+        } as never);
       } else result = workspaceWrite(root, { ...writeInput, content: input.content } as never);
       break;
     }

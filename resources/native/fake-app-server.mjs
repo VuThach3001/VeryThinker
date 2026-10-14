@@ -82,10 +82,17 @@ for await (const line of createInterface({ input: process.stdin })) {
       cwd,
       approvalPolicy: 'on-request',
       approvalsReviewer: 'user',
-      sandbox: { type: 'readOnly' },
+      sandbox: {
+        type: scenario === 'wrong-sandbox'
+          ? 'readOnly'
+          : configuration.sandbox === 'read-only'
+            ? 'readOnly'
+            : 'workspaceWrite',
+      },
       thread: { id: currentThread, turns: [] },
     };
     if (scenario === 'missing-model') delete response.model;
+    if (scenario === 'missing-sandbox') delete response.sandbox;
     if (scenario === 'wrong-effort') response.reasoningEffort = 'low';
     result(id, response);
   }

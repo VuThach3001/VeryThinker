@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,7 @@ import {
   runCheck,
   verify,
   roleCapabilities,
+  describeCapabilities,
   authorizeOperation,
   toolCatalog,
   routingProblems,
@@ -24,6 +25,7 @@ import {
   finishWorkflow,
 } from '../dist/index.js';
 import { createNativeBridge, shutdownNative } from '../dist/native.js';
+import { expectedNativeSandbox } from '../dist/routing.js';
 const transport = fileURLToPath(
   new URL('../resources/native/fake-app-server.mjs', import.meta.url),
 );
@@ -158,13 +160,122 @@ test('gateway never grants a simulated caller publication and pins explicit role
   assert.throws(() =>
     authorizeOperation(root, invocation.id, 'record_get', { workflow_id: 'WF-OTHER' }),
   );
-  assert.equal(roleCapabilities('reviewer').operations.includes('record_update'), false);
+  assert.equal(roleCapabilities('reviewer').operations.includes('record_update'), true);
   assert.equal(roleCapabilities('check-executor').operations.includes('check_run'), true);
   assert.deepEqual(
     toolCatalog.map((tool) => tool.version),
     ['1.6.2', '4.3.0', '0.0.83'],
   );
   for (const tool of toolCatalog) assert.match(tool.integrity, /^sha512-[A-Za-z0-9+/]+=*$/);
+});
+
+test('all twelve roles discover shared documentation, assigned editing, lifecycle, and approved provider tools', (t) => {
+  const { root } = project(t);
+  const roles = [
+    'manager',
+    'requirements',
+    'architect',
+    'component-owner',
+    'verifier',
+    'reviewer',
+    'researcher',
+    'codebase-analyst',
+    'curator',
+    'developer',
+    'check-executor',
+    'release',
+  ];
+  const allProviders = toolCatalog.map((tool) => tool.id);
+  for (const role of roles) {
+    const contract = roleCapabilities(role);
+    for (const operation of [
+      'project_read',
+      'record_list',
+      'record_get',
+      'record_trace',
+      'record_create',
+      'record_update',
+      'note_create',
+      'note_validate',
+      'task_file_write',
+      'task_start',
+      'task_resume',
+      'task_submit',
+      'capability_resolve',
+      'capability_invoke',
+      'record_review_status',
+    ])
+      assert.ok(contract.operations.includes(operation), `${role} lacks ${operation}`);
+    assert.deepEqual(contract.providers, allProviders, `${role} provider catalog`);
+    assert.deepEqual(roleCapabilities(role, ['context7']).providers, ['context7']);
+    assert.ok(contract.native_tools.includes('search'), `${role} lacks native search`);
+  }
+  for (const role of roles.filter((role) => role !== 'reviewer')) {
+    const tools = roleCapabilities(role).native_tools;
+    assert.ok(tools.includes('edit'), `${role} lacks basic native editing`);
+    assert.ok(tools.includes('execute-prescribed'), `${role} lacks prescribed execution`);
+  }
+  const reviewer = roleCapabilities('reviewer');
+  assert.ok(!reviewer.native_tools.includes('edit'));
+  assert.ok(reviewer.operations.includes('record_update'));
+  assert.ok(!reviewer.operations.includes('manager_acknowledge'));
+  assert.ok(!reviewer.operations.includes('task_accept'));
+  assert.ok(!reviewer.operations.includes('archive_publish'));
+  assert.ok(roleCapabilities('manager').operations.includes('manager_acknowledge'));
+  for (const role of roles.filter((role) => role !== 'manager'))
+    assert.ok(!roleCapabilities(role).operations.includes('manager_acknowledge'), role);
+  writeFileSync(
+    join(root, '.verythinker/tools.json'),
+    JSON.stringify({
+      schema_version: 1,
+      automatic_install: false,
+      approved_providers: ['context7'],
+    }),
+  );
+  assert.deepEqual(
+    describeCapabilities(root, 'manager').providers.map((provider) => provider.id),
+    ['context7'],
+  );
+});
+
+test('reviewer native editing depends on owning a task, while review and unbound receipts remain read-only', (t) => {
+  const { root } = project(t);
+  const workflow = beginWorkflow(root, { requirement: 'Scope reviewer documentation authority.' });
+  const task = (owner, title) =>
+    createRecord(root, {
+      type: 'task',
+      title,
+      owner,
+      links: workflow.meta.data.requirement_ids.map((target) => ({ type: 'satisfies', target })),
+      data: {
+        workflow_id: workflow.meta.id,
+        requirements: workflow.meta.data.requirement_ids,
+        acceptance_criteria: ['The assigned documentation remains within scope.'],
+        allowed_paths: ['docs'],
+      },
+    });
+  const ownTask = task('reviewer', 'Write scoped review guidance');
+  const targetTask = task('developer', 'Implementation being reviewed');
+  assert.equal(
+    expectedNativeSandbox(root, {
+      id: 'reviewer-producer',
+      role: 'reviewer',
+      task_id: ownTask.meta.id,
+    }),
+    'workspaceWrite',
+  );
+  assert.equal(
+    expectedNativeSandbox(root, {
+      id: 'reviewer-reviewer',
+      role: 'reviewer',
+      task_id: targetTask.meta.id,
+    }),
+    'readOnly',
+  );
+  assert.equal(
+    expectedNativeSandbox(root, { id: 'reviewer-unbound', role: 'reviewer', task_id: null }),
+    'readOnly',
+  );
 });
 
 test('an unmigrated pending legacy workflow cannot plan or close after routing installation', (t) => {

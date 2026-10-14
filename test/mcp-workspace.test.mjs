@@ -41,7 +41,7 @@ async function clientFor(t, root, invocationId) {
 }
 const result = (response) => JSON.parse(response.content[0].text);
 
-test('workspace MCP discovery declares CAS, task scope and recovery without caller model/receipt claims', async (t) => {
+test('workspace MCP exposes CAS writing to assigned roles without caller model or receipt claims', async (t) => {
   const root = project(t),
     client = await clientFor(t, root);
   const tool = (await client.listTools()).tools.find((item) => item.name === 'task_file_write');
@@ -60,8 +60,8 @@ test('workspace MCP discovery declares CAS, task scope and recovery without call
   assert.match(JSON.stringify(schema.properties.expected_hash), /null/);
   assert.equal(schema.properties.invocation_id, undefined);
   assert.equal(schema.properties.confirmed_model, undefined);
+  assert.match(tool.description, /assigned task owner/);
   assert.match(tool.description, /immutable history/);
-  assert.ok(roleCapabilities('developer').operations.includes('task_file_write'));
   for (const role of [
     'manager',
     'requirements',
@@ -73,7 +73,7 @@ test('workspace MCP discovery declares CAS, task scope and recovery without call
     'check-executor',
     'release',
   ])
-    assert.ok(!roleCapabilities(role).operations.includes('task_file_write'), role);
+    assert.ok(roleCapabilities(role).operations.includes('task_file_write'), role);
 });
 
 test('workspace MCP rejects unbound legacy/strict and protocol-fixture writes without changing outputs', async (t) => {

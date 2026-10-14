@@ -589,13 +589,13 @@ test('strict roles use Luna max and gateway tool declarations preserve reviewer 
     'architect',
     'component-owner',
     'verifier',
-    'reviewer',
   ]) {
     const file = read(root, `.codex/agents/verythinker-${role}.toml`);
     assert.match(file, /model = "gpt-6-luna"/);
     assert.match(file, /model_reasoning_effort = "max"/);
-    assert.match(file, /sandbox_mode = "read-only"/);
+    assert.match(file, /sandbox_mode = "workspace-write"/);
   }
+  assert.match(read(root, '.codex/agents/verythinker-reviewer.toml'), /sandbox_mode = "read-only"/);
   for (const role of [
     'researcher',
     'codebase-analyst',
@@ -608,8 +608,12 @@ test('strict roles use Luna max and gateway tool declarations preserve reviewer 
   const reviewer = read(root, '.codex/agents/verythinker-reviewer.toml');
   const enabled = JSON.parse(/^enabled_tools = (.+)$/m.exec(reviewer)[1]);
   assert.ok(enabled.includes('task_review'));
-  assert.ok(!enabled.includes('task_submit'));
-  assert.ok(!enabled.includes('record_update'));
+  assert.ok(enabled.includes('task_submit'));
+  assert.ok(enabled.includes('task_file_write'));
+  assert.ok(enabled.includes('record_review_status'));
+  assert.ok(enabled.includes('record_update'));
+  assert.ok(!enabled.includes('manager_acknowledge'));
+  assert.ok(!enabled.includes('task_accept'));
   const claude = read(root, '.claude/agents/verythinker-reviewer.md');
   const toolLine = /^tools: (.+)$/m.exec(claude)[1].split(', ');
   assert.ok(toolLine.includes('Read'));

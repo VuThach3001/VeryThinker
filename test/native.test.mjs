@@ -287,9 +287,11 @@ test('native tool preapproval is scoped to the approved role gateway and preserv
   ]);
   const gateway = observed.config['mcp_servers.verythinker'];
   assert.ok(gateway.enabled_tools.includes('record_review'));
-  assert.ok(!gateway.enabled_tools.includes('record_update'));
-  assert.ok(!gateway.enabled_tools.includes('task_file_write'));
+  assert.ok(gateway.enabled_tools.includes('record_update'));
+  assert.ok(gateway.enabled_tools.includes('task_file_write'));
   assert.ok(!gateway.enabled_tools.includes('check_inspect'));
+  assert.ok(completed.native_tool_scope.includes('task_file_write'));
+  assert.equal(completed.native_sandbox, 'readOnly');
   assert.ok(Object.values(gateway.tools).every((tool) => tool.approval_mode === 'approve'));
   const rejected = await bridge('explicit-tool-policy').start(root, {
     role: 'reviewer',
@@ -312,7 +314,7 @@ test('native scoped editing capability is exposed only to a new Developer invoca
   const observed = JSON.parse(completed.output),
     gateway = observed.config['mcp_servers.verythinker'];
   assert.equal(observed.approvalPolicy, null);
-  assert.equal(observed.sandbox, null);
+  assert.equal(observed.sandbox, 'workspace-write');
   assert.ok(gateway.enabled_tools.includes('task_file_write'));
   assert.equal(gateway.tools.task_file_write.approval_mode, 'approve');
   assert.ok(completed.native_tool_scope.includes('task_file_write'));
@@ -325,7 +327,35 @@ test('native scoped editing capability is exposed only to a new Developer invoca
   assert.equal(inspected.state, 'completed');
   const inspectionGateway = JSON.parse(inspected.output).config['mcp_servers.verythinker'];
   assert.ok(inspectionGateway.enabled_tools.includes('check_inspect'));
-  assert.ok(!inspectionGateway.enabled_tools.includes('task_file_write'));
+  assert.ok(inspectionGateway.enabled_tools.includes('task_file_write'));
   assert.equal(inspectionGateway.tools.check_inspect.approval_mode, 'approve');
   assert.ok(inspected.native_tool_scope.includes('check_inspect'));
+});
+
+test('worker native scope requires acknowledged workspace-write and rejects a narrower or missing grant', async (t) => {
+  const root = project(t);
+  const native = bridge('approval-scope');
+  const started = await native.start(root, {
+    role: 'researcher',
+    prompt: 'Observe assigned workspace editing and execution scope.',
+  });
+  const completed = await native.wait(root, started.id, 5000);
+  assert.equal(completed.state, 'completed');
+  assert.equal(completed.native_sandbox, 'workspaceWrite');
+  const policy = JSON.parse(completed.output).config['mcp_servers.verythinker'];
+  assert.ok(policy.enabled_tools.includes('task_file_write'));
+  assert.ok(policy.enabled_tools.includes('task_submit'));
+
+  const wrong = await bridge('wrong-sandbox').start(root, {
+    role: 'developer',
+    prompt: 'Reject an insufficient native sandbox acknowledgment.',
+  });
+  assert.equal(wrong.state, 'blocked');
+  assert.match(wrong.error, /did not acknowledge the sandbox/);
+  const missing = await bridge('missing-sandbox').start(root, {
+    role: 'developer',
+    prompt: 'Reject a missing native sandbox acknowledgment.',
+  });
+  assert.equal(missing.state, 'blocked');
+  assert.match(missing.error, /did not acknowledge the sandbox/);
 });

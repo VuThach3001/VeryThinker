@@ -75,6 +75,8 @@ export interface NativeReceipt {
   requested_model: string;
   confirmed_model: string | null;
   model_provider: string | null;
+  /** Requested client sandbox for new invocations; historical receipts omit it. */
+  requested_sandbox?: 'readOnly' | 'workspaceWrite' | null;
   native_sandbox: string | null;
   native_tool_scope: string[];
   gateway_policy_sha256: string | null;
@@ -294,6 +296,26 @@ export function readInvocation(root: string, id: string): NativeReceipt {
 export function invocationIsActive(receipt: NativeReceipt): boolean {
   return ['starting', 'running', 'waiting-native-permission'].includes(receipt.state);
 }
+
+/** Expected client sandbox follows the role's current assignment. A reviewer
+ * receives write access only while producing its own assigned task; review
+ * invocations and unbound reviewer sessions remain read-only. */
+export function expectedNativeSandbox(
+  root: string,
+  receipt: NativeReceipt,
+): 'readOnly' | 'workspaceWrite' {
+  if (receipt.fast_grant?.stage === 'planner') return 'readOnly';
+  if (receipt.role !== 'reviewer') return 'workspaceWrite';
+  if (receipt.task_id) {
+    try {
+      const task = getRecord(root, receipt.task_id);
+      if (task.meta.type === 'task' && task.meta.owner === 'reviewer') return 'workspaceWrite';
+    } catch {
+      // An unknown task cannot confer reviewer editing authority.
+    }
+  }
+  return 'readOnly';
+}
 export function ownerIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -371,10 +393,7 @@ export function routingProblems(
   } catch {
     errors.push('Pinned native runtime lock is unavailable.');
   }
-  if (
-    receipt.role !== role &&
-    !hasFastResponsibility(root, receipt, role)
-  )
+  if (receipt.role !== role && !hasFastResponsibility(root, receipt, role))
     errors.push('Native invocation belongs to a different engineering role.');
   if (receipt.fast_grant) errors.push(...fastGrantProblems(root, receipt, { historical: true }));
   errors.push(...routingBindingProblems(root, receipt, binding));
@@ -393,8 +412,21 @@ export function routingProblems(
     receipt.reasoning_effort !== policy.reasoning_effort
   )
     errors.push('Native reasoning effort does not match the role policy.');
-  if (policy.strong && receipt.native_sandbox !== 'readOnly')
+  if (receipt.requested_sandbox !== undefined && receipt.requested_sandbox !== null) {
+    if (receipt.requested_sandbox !== 'readOnly' && receipt.requested_sandbox !== 'workspaceWrite')
+      errors.push('Native receipt records an unsupported requested sandbox.');
+    if (receipt.native_sandbox !== receipt.requested_sandbox)
+      errors.push(
+        `Native sandbox ${receipt.native_sandbox ?? 'unobserved'} does not match the requested policy (${receipt.requested_sandbox}).`,
+      );
+  } else if (
+    (strongRoles as readonly string[]).includes(receipt.role) &&
+    receipt.native_sandbox !== 'readOnly'
+  ) {
+    // Historical strong-role receipts were launched read-only. Keep those
+    // receipts valid based on their signed client acknowledgment.
     errors.push('Strategic role lacks native acknowledgment of read-only shell access.');
+  }
   if (
     receipt.client_version !== '0.162.1' ||
     !receipt.model_provider ||
